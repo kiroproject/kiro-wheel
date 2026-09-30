@@ -15,6 +15,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+import aiohttp
 from aiohttp import web
 from sqlalchemy import text
 
@@ -293,6 +294,50 @@ async def _notify_giver(request: web.Request, giver_id: int, prize: dict[str, An
         logger.warning("kiro-wheel: giver notification skipped")
 
 
+def _spins_word(n: int) -> str:
+    if n % 10 == 1 and n % 100 != 11:
+        return "бонусное вращение"
+    if 2 <= n % 10 <= 4 and not 12 <= n % 100 <= 14:
+        return "бонусных вращения"
+    return "бонусных вращений"
+
+
+async def _send_user_message(bot: Any, settings: Any, telegram_id: int, message: str) -> None:
+    if bot is not None:
+        await bot.send_message(telegram_id, message, disable_web_page_preview=True)
+        return
+    token = str(getattr(settings, "BOT_TOKEN", "") or "")
+    if not token:
+        raise RuntimeError("bot_unavailable")
+    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15)) as http:
+        async with http.post(
+            f"https://api.telegram.org/bot{token}/sendMessage",
+            json={"chat_id": telegram_id, "text": message, "disable_web_page_preview": True},
+        ) as response:
+            if response.status != 200:
+                raise RuntimeError(f"telegram_http_{response.status}")
+
+
+async def _notify_spins(
+    session: Any, bot: Any, settings: Any, user_id: int, spins: int, reason: str
+) -> None:
+    """Tell the player about new bonus spins; a delivery failure never undoes the grant."""
+    try:
+        telegram_id = await session.scalar(
+            text("select telegram_id from users where user_id = :u"), {"u": user_id}
+        )
+        if not telegram_id:
+            return
+        head = "🎡 Спасибо за оплату!" if reason == "payment" else "🎁 Вам подарок!"
+        message = (
+            f"{head} Вам начислено {spins} {_spins_word(spins)} в Колесе удачи.\n"
+            "Откройте приложение и крутите колесо: выигрыши ждут в разделе «Колесо удачи»."
+        )
+        await _send_user_message(bot, settings, int(telegram_id), message)
+    except Exception:  # noqa: BLE001
+        logger.warning("kiro-wheel: bonus spins notification skipped")
+
+
 async def user_image(request: web.Request) -> web.Response:
     image_id = request.match_info["image_id"]
     if not image_id.isalnum() or len(image_id) > 64:
@@ -534,6 +579,7 @@ async def admin_grant_spins(request: web.Request) -> web.Response:
             session, int(user_id), spins, key=key, reason="admin", cap=int(config["max_bonus_spins"])
         )
         await session.commit()
+        await _notify_spins(session, get_bot(request), get_settings(request), int(user_id), spins, "admin")
     return _ok({"user_id": user_id, "spins": spins})
 
 
@@ -564,6 +610,10 @@ async def _on_payment(op: OperationContext, payload: dict[str, Any]) -> dict[str
             cap=int(config["max_bonus_spins"]),
         )
         await session.commit()
+        if added:
+            await _notify_spins(
+                session, getattr(op.runtime, "bot", None), op.runtime.settings, user_id, spins, "payment"
+            )
     return {"added": spins if added else 0}
 
 
@@ -574,7 +624,7 @@ async def _view_policy(context: UserContext, view_id: str) -> bool:
 
 class KiroWheelPlugin(Plugin):
     name = PLUGIN_ID
-    version = "1.3.0"
+    version = "1.3.1"
     plugin_api_min_version = 1
     plugin_api_max_version = 1
 

@@ -36,7 +36,9 @@ const SLOT_ICON = `<svg data-kw-icon width="21" height="21" viewBox="0 0 24 24" 
 
 const STYLE = `
 .kw{display:flex;flex-direction:column;gap:14px;color:var(--text);padding-bottom:14px;width:100%;max-width:100%;min-width:0;
-  box-sizing:border-box;overflow-x:hidden}
+  box-sizing:border-box;overflow-x:hidden;contain:inline-size}
+.kw *{box-sizing:border-box}
+.kw-row>*{min-width:0}.kw-card{min-width:0;max-width:100%}.kw-redeem input{width:100%}
 .kw [data-body]{display:flex;flex-direction:column;gap:14px}
 .kw-stage{position:relative;overflow:hidden;border-radius:24px;padding:16px 14px;color:var(--kt,#fff);width:100%;box-sizing:border-box;
   background:radial-gradient(120% 70% at 50% 42%,rgba(255,255,255,.2),transparent 60%),linear-gradient(170deg,var(--g1),var(--g2));
@@ -109,10 +111,12 @@ const STYLE = `
 
 // Rendered on document.body so it is never trapped under the host layout or bottom navigation.
 const MODAL_STYLE = `
-.kw-overlay{position:fixed;top:0;left:0;right:0;bottom:0;width:100%;height:100%;margin:0;z-index:2147483000;background:rgba(0,0,0,.62);overflow-y:auto;-webkit-overflow-scrolling:touch;
-  display:flex;padding:max(16px,env(safe-area-inset-top)) 14px calc(96px + env(safe-area-inset-bottom));box-sizing:border-box;
+.kw-overlay{position:fixed;top:0;left:0;right:0;bottom:0;margin:0;z-index:2147483000;background:rgba(0,0,0,.62);overflow:hidden;
+  display:flex;align-items:center;justify-content:center;box-sizing:border-box;
+  padding:max(16px,env(safe-area-inset-top)) 16px max(16px,env(safe-area-inset-bottom));
   animation:kw-fade .25s ease-out;font-family:inherit}
-.kw-win{margin:auto;align-self:center;flex:0 1 auto;box-sizing:border-box;background:var(--bg,#16181d);color:var(--text,#fff);border-radius:24px;overflow:hidden;max-width:380px;width:100%;
+.kw-win{flex:0 1 auto;margin:0;box-sizing:border-box;background:var(--bg,#16181d);color:var(--text,#fff);border-radius:24px;overflow-x:hidden;overflow-y:auto;
+  -webkit-overflow-scrolling:touch;max-width:380px;width:100%;max-height:100%;
   text-align:center;animation:kw-rise .45s cubic-bezier(.3,1.4,.5,1);box-shadow:0 20px 50px rgba(0,0,0,.45)}
 .kw-win-top{padding:clamp(14px,4vh,24px) 16px clamp(12px,3vh,18px);background:linear-gradient(170deg,var(--w1),var(--w2));color:var(--wt,#fff)}
 .kw-win-top .kw-pic{margin:0 auto 10px;width:clamp(96px,30vw,150px);height:clamp(90px,17vh,140px);display:flex;align-items:center;justify-content:center}
@@ -467,7 +471,11 @@ function confetti(stage) {
 function openModal(theme) {
   const overlay = document.createElement("div");
   overlay.className = "kw-overlay";
-  overlay.setAttribute("style", themeVars(theme));
+  let family = "";
+  try {
+    family = getComputedStyle(document.body).fontFamily;
+  } catch {}
+  overlay.setAttribute("style", themeVars(theme) + (family ? `;font-family:${family.replace(/[;"<>]/g, (c) => (c === '"' ? "'" : ""))}` : ""));
   overlay.innerHTML = `<style>${MODAL_STYLE}</style><div class="kw-win"></div>`;
   // Attach to <html>: a transformed <body> in some WebViews would re-anchor position:fixed.
   document.documentElement.appendChild(overlay);
