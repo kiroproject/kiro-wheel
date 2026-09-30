@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Wheel Preview</title>
+<style>
+  :root{--bg:#161a22;--text:#eef1f6;--muted:#8b93a3;--accent:#7c5cff;--border:#2b3140;--radius:14px;--panel:#1c212b;--panel-2:#232a36}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+  .wrap{max-width:440px;margin:0 auto;padding:16px 16px 110px}
+  .tabs{display:flex;gap:8px;margin-bottom:14px}.tabs button{flex:1;padding:8px;border-radius:10px;border:1px solid var(--border);background:transparent;color:var(--text)}
+  .admin{max-width:980px}
+  /* imitation of the Minishop bottom navigation */
+  nav.bottom-nav{position:fixed;left:12px;right:12px;bottom:12px;z-index:50;display:flex;justify-content:space-around;padding:12px;border-radius:22px;
+    background:#10131a;border:1px solid var(--border)}
+  nav.bottom-nav button{background:none;border:0;color:var(--muted);display:flex;flex-direction:column;align-items:center;gap:3px;font-size:10px}
+</style>
+</head>
+<body>
+<div class="wrap" id="wrap">
+  <div class="tabs"><button data-v="wheel">Клиент</button><button data-v="card">Карточка</button><button data-v="admin">Админка</button></div>
+  <div id="app"></div>
+</div>
+<nav class="bottom-nav">
+  <button aria-label="Главная"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11l9-8 9 8v10H3z"/></svg><span>Главная</span></button>
+  <button aria-label="Поддержка"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/></svg><span>Поддержка</span></button>
+  <button aria-label="Колесо удачи"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="8" width="18" height="13" rx="2"/><path d="M12 8v13M3 12h18"/></svg><span>Колесо удачи</span></button>
+</nav>
+<script>
+  window.Telegram = { WebApp: { initDataUnsafe: { start_param: new URLSearchParams(location.search).get("sp") || "" }, openTelegramLink(u) { window.__shared = u; console.log("share", u); } } };
+</script>
+<script type="module">
+  const svg = (emoji, bg) => `data:image/svg+xml;utf8,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128"><rect width="128" height="128" rx="24" fill="${bg}"/><text x="64" y="84" font-size="64" text-anchor="middle">${emoji}</text></svg>`)}`;
+  const dark = `data:image/svg+xml;utf8,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128"><path d="M20 100 L64 20 L108 100 Z" fill="none" stroke="#111" stroke-width="10"/><text x="64" y="92" font-size="30" text-anchor="middle" fill="#111" font-weight="bold">SALE</text></svg>`)}`;
+  const prizes = [
+    { id: 1, badge: "+30 дн.", title: "1 месяц подписки", kind: "days", label: "+30 дн. подписки", color: "#5b4fe0", image: svg("📅", "#2d6cdf"), tile: null },
+    { id: 2, badge: "−5%", title: "Скидка 5%", kind: "discount", label: "Скидка 5%", color: "#5b4fe0", image: dark, tile: "#ffffff" },
+    { id: 3, badge: "Мимо", title: "Повезёт в другой раз", kind: "nothing", label: "Без выигрыша", color: "#666666", image: null, tile: null },
+    { id: 4, badge: "+50 ₽", title: "+50 на баланс", kind: "balance", label: "+50 ₽ на баланс", color: "#5b4fe0", image: svg("🏛️", "#8a5cf6"), tile: null },
+  ];
+  let available = 3, pending = null, spinN = 0;
+  const gifts = [];
+  const theme = { bg_from: "#ff3b1d", bg_to: "#f7821b", text_color: "#ffffff", btn_bg: "#ffffff", btn_text: "#1b1b1f", win_from: "#ff3b1d", win_to: "#f7821b", win_text: "#ffffff", tile_enabled: false, tile_bg: "#ffffff" };
+  const state = () => ({ daily_left: Math.min(1, available), bonus: Math.max(0, available - 1), available, next_free_at: new Date(Date.now() + 5 * 3600e3).toISOString(), subscribed: true, can_spin: available > 0 && !pending, reason: available > 0 ? null : "no_spins" });
+  const history = [];
+  const pv = (p, source) => ({ spin_id: String(++spinN).padStart(32, "0"), prize: p, can_reroll: source !== "reroll", can_gift: p.kind !== "nothing", nothing: p.kind === "nothing", source });
+  const rnd = () => prizes[Math.floor(Math.random() * prizes.length)];
+  const host = {
+    version: 1,
+    notify: (m) => console.log("notify:", m),
+    navigate: (v) => console.log("navigate → " + v),
+    async request(path, opts = {}) {
+      await new Promise((r) => setTimeout(r, 200));
+      const body = opts.body ? JSON.parse(opts.body) : {};
+      if (path === "/state") return { theme, feed: [{ name: "g***ck", badge: "−5%", at: new Date(Date.now()-7200e3).toISOString() }, { name: "s***od", badge: "+30 дн.", at: new Date(Date.now()-3.1*3600e3).toISOString() }], title: "Колесо удачи", subtitle: "Крутите колесо и забирайте подарки", enabled: true, prizes, state: state(), pending, gifts, rules: { daily_free_spins: 1, spins_per_payment: 3, allow_gift: true, allow_reroll: true, gift_ttl_days: 7 }, history };
+      if (path === "/spin") { if (available <= 0) throw { ok: false, error: "no_spins" }; available--; pending = pv(rnd(), "daily"); return { pending, state: state() }; }
+      if (path === "/resolve") {
+        const p = pending.prize;
+        if (body.action === "reroll") { pending = pv(rnd(), "reroll"); return { pending, state: state() }; }
+        pending = null;
+        if (body.action === "gift") { const code = "GIFT" + Math.floor(Math.random() * 9000 + 1000); gifts.unshift({ code, status: "open", expires_at: new Date(Date.now() + 7 * 864e5).toISOString(), prize: p.title }); gifts[0].link = "https://t.me/kiro_bot?startapp=wg_" + code; return { code, link: gifts[0].link, expires_at: gifts[0].expires_at, prize: p, state: state() }; }
+        const result = p.kind === "discount" ? { applied: true, code: "6EZRT7DWG5", text: "Промокод на скидку 5%: введите его при оплате. Действует 30 дн." } : { applied: p.kind !== "nothing", text: p.label };
+        history.unshift({ prize: p, result, status: "claimed", status_label: "получен", at: new Date().toISOString() });
+        return { spin_id: "x", prize: p, result, state: state() };
+      }
+      if (path === "/gift/redeem") { window.__redeemed = body.code; } if (path === "/gift/redeem") return { prize: prizes[0], result: { applied: true, text: "К подписке добавлено 30 дн." } };
+      if (path === "/gift/cancel") { const g = gifts.find((x) => x.code === body.code); g.status = "cancelled"; pending = pv(prizes.find((x) => x.title === g.prize), "daily"); return { pending }; }
+      throw new Error("unknown " + path);
+    },
+  };
+  const adminData = { config: { enabled: true, title: "Колесо удачи", subtitle: "Крутите колесо и забирайте подарки", daily_free_spins: 1, spins_per_payment: 3, max_bonus_spins: 20, day_offset_hours: 3, gift_ttl_days: 7, require_active_subscription: true, notify_admins_on_manual: true, show_feed: true, allow_gift: true, allow_reroll: true, ...theme },
+    prizes: prizes.map((p, i) => ({ ...p, description: "", params: p.kind === "discount" ? { percent: 5, valid_days: 30, tile_bg: "#ffffff" } : {}, weight: [10, 30, 40, 20][i], chance: [10, 30, 40, 20][i], stock: null, enabled: true, position: i, won_30d: 1, image_id: null })),
+    stats: { day: 4, month: 40, total: 40, players: 7 }, recent: [] };
+  const realFetch = window.fetch.bind(window);
+  window.fetch = async (url, opts = {}) => String(url).startsWith("/api/admin/kiro-wheel")
+    ? new Response(JSON.stringify({ ok: true, ...adminData }), { status: 200, headers: { "Content-Type": "application/json" } })
+    : realFetch(url, opts);
+  const customer = await import("../frontend/customer/index.js?" + Date.now());
+  const admin = await import("../frontend/admin/index.js?" + Date.now());
+  let inst = null, mod = null;
+  function show(v) {
+    if (inst) mod.unmountView(inst);
+    const el = document.getElementById("app");
+    document.getElementById("wrap").classList.toggle("admin", v === "admin");
+    if (v === "admin") { mod = admin; inst = admin.mountView("settings", el, {}); }
+    else { mod = customer; inst = customer.mountView(v === "card" ? "home-card" : "wheel", el, { host, language: "ru", context: {} }); }
+  }
+  window.__show = show;
+  document.querySelectorAll("[data-v]").forEach((b) => b.addEventListener("click", () => show(b.dataset.v)));
+  show(new URLSearchParams(location.search).get("v") || "wheel");
+</script>
+</body>
+</html>
