@@ -845,89 +845,43 @@ function mountHomeCard(target, props) {
   const host = props.host;
   const root = document.createElement("div");
   root.className = "plugin-host";
-  root.innerHTML = `<style>${STYLE}</style><div data-card></div><div data-wheel style="margin-top:12px"></div>`;
+  root.innerHTML = `<style>${STYLE}</style>`;
   target.replaceChildren(root);
-  const st = { root, disposed: false, timers: [], wheel: null, data: null };
-  const OPEN_KEY = "kiroWheelOpen";
-  const cardBox = root.querySelector("[data-card]");
-  const wheelBox = root.querySelector("[data-wheel]");
-
+  const st = { root, disposed: false, timers: [] };
   const incoming = giftFromStart();
   let handled = "";
   try {
     handled = sessionStorage.getItem(`${GIFT_KEY}:done`) || "";
   } catch {}
-  let forceOpen = false;
   if (incoming && handled !== incoming) {
-    // A gift link opens the wheel right on the home page; the wheel then offers the gift.
+    // A gift link opens the wheel page, which then offers the gift.
     try {
       sessionStorage.setItem(GIFT_KEY, incoming);
       sessionStorage.setItem(`${GIFT_KEY}:done`, incoming);
     } catch {}
-    forceOpen = true;
+    host.navigate("wheel");
+    return st;
   }
-
-  const isOpen = () => {
-    try {
-      return sessionStorage.getItem(OPEN_KEY) === "1";
-    } catch {
-      return false;
-    }
-  };
-  const setOpen = (value) => {
-    try {
-      sessionStorage.setItem(OPEN_KEY, value ? "1" : "0");
-    } catch {}
-  };
-
-  function buttonText(d) {
-    if (st.wheel) return "Свернуть";
-    return d.pending ? "Забрать" : d.state.can_spin ? "Крутить" : "Открыть";
-  }
-
-  function openWheel() {
-    if (st.wheel || st.disposed) return;
-    st.wheel = mountWheel(wheelBox, props);
-    setOpen(true);
-    drawCard();
-  }
-
-  function closeWheel() {
-    if (!st.wheel) return;
-    unmountView(st.wheel);
-    st.wheel = null;
-    wheelBox.replaceChildren();
-    setOpen(false);
-    drawCard();
-  }
-
-  function drawCard() {
-    const d = st.data;
-    if (!d || st.disposed) return;
-    const s = d.state;
-    const text = d.pending
-      ? "У вас есть неполученный приз"
-      : s.can_spin
-        ? `Доступно вращений: ${s.available}`
-        : s.reason === "no_spins"
-          ? `Следующее через ${timeLeft(s.next_free_at)}`
-          : ERRORS[s.reason] || "";
-    const card = document.createElement("div");
-    card.className = "kw-mini";
-    card.setAttribute("style", themeVars(d.theme));
-    card.innerHTML = `<div class="kw-ico">🎡</div><div><b>${esc(d.title)}</b><span>${esc(text)}</span></div>
-      <button type="button">${buttonText(d)}</button>`;
-    card.querySelector("button").addEventListener("click", () => (st.wheel ? closeWheel() : openWheel()));
-    cardBox.replaceChildren(card);
-  }
-
   host
     .request("/state")
     .then((d) => {
+      installNavIcon(d.title);
       if (st.disposed || !d.enabled || !d.prizes.length) return;
-      st.data = d;
-      drawCard();
-      if (forceOpen || d.pending || isOpen()) openWheel();
+      const s = d.state;
+      const text = d.pending
+        ? "У вас есть неполученный приз"
+        : s.can_spin
+          ? `Доступно вращений: ${s.available}`
+          : s.reason === "no_spins"
+            ? `Следующее через ${timeLeft(s.next_free_at)}`
+            : ERRORS[s.reason] || "";
+      const card = document.createElement("div");
+      card.className = "kw-mini";
+      card.setAttribute("style", themeVars(d.theme));
+      card.innerHTML = `<div class="kw-ico">🎡</div><div><b>${esc(d.title)}</b><span>${esc(text)}</span></div>
+        <button type="button">${d.pending ? "Забрать" : s.can_spin ? "Крутить" : "Открыть"}</button>`;
+      card.querySelector("button").addEventListener("click", () => host.navigate("wheel"));
+      root.appendChild(card);
     })
     .catch(() => {});
   return st;
@@ -952,6 +906,5 @@ export function unmountView(instance) {
   });
   if (instance.drum) instance.drum.destroy();
   if (instance.modal) instance.modal.close();
-  if (instance.wheel) unmountView(instance.wheel);
   instance.root.remove();
 }
