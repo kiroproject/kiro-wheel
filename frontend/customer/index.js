@@ -101,7 +101,7 @@ const STYLE = `
 .kw-btn.acc{background:var(--accent);border-color:var(--accent);color:var(--accent-contrast,#fff)}
 .kw-mini{display:flex;align-items:center;gap:12px;border-radius:18px;padding:12px 14px;color:var(--kt,#fff);
   background:linear-gradient(135deg,var(--g1),var(--g2))}
-.kw-mini .kw-ico{font-size:30px}.kw-mini div{flex:1;min-width:0}.kw-mini b{display:block}.kw-mini span{font-size:13px;opacity:.9}
+.kw-mini .kw-ico{font-size:30px;flex:none;line-height:1}.kw-mini div:not(.kw-ico){flex:1;min-width:0}.kw-mini b{display:block}.kw-mini span{font-size:13px;opacity:.9}
 .kw-mini button{border:0;border-radius:12px;background:var(--kbb,#fff);color:var(--kbt,#1b1b1f);padding:9px 14px;font-weight:800;cursor:pointer}
 @keyframes kw-pop{0%{transform:scale(1)}40%{transform:scale(1.22) rotate(-4deg)}100%{transform:scale(1)}}
 @keyframes kw-flash{0%{transform:translate(-50%,-50%) scale(.8);opacity:.6}35%{transform:translate(-50%,-50%) scale(1.5);opacity:1}100%{transform:translate(-50%,-50%) scale(1)}}
