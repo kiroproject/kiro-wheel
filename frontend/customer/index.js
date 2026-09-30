@@ -462,14 +462,24 @@ function openModal(theme) {
   document.documentElement.appendChild(overlay);
   const prevOverflow = document.body.style.overflow;
   document.body.style.overflow = "hidden";
-  return {
+  const m = {
     el: overlay,
     win: overlay.querySelector(".kw-win"),
+    dismiss: null, // set only for modals that are safe to drop (backdrop click / Esc)
     close() {
+      document.removeEventListener("keydown", onKey);
       document.body.style.overflow = prevOverflow;
       overlay.remove();
     },
   };
+  const onKey = (e) => {
+    if (e.key === "Escape" && m.dismiss) m.dismiss();
+  };
+  overlay.addEventListener("click", (e) => {
+    if (e.target === overlay && m.dismiss) m.dismiss();
+  });
+  document.addEventListener("keydown", onKey);
+  return m;
 }
 
 function giftMessage(prize, link) {
@@ -780,12 +790,17 @@ function mountWheel(target, props) {
     st.modal.win.querySelector("[data-share]").addEventListener("click", () => shareGift(out.link || out.code, p.title, host));
   }
 
+  function closeModal(m) {
+    m.close();
+    if (st.modal === m) st.modal = null;
+    // spinTo() switched the drum off idle; nothing else turns it back on once the prize is settled.
+    if (st.drum) st.drum.resumeIdle();
+  }
+
   function bindModal(code) {
     const m = st.modal;
-    m.win.querySelector("[data-close]").addEventListener("click", () => {
-      m.close();
-      if (st.modal === m) st.modal = null;
-    });
+    m.win.querySelector("[data-close]").addEventListener("click", () => closeModal(m));
+    m.dismiss = () => closeModal(m);
     const copy = m.win.querySelector("[data-copy]");
     if (copy)
       copy.addEventListener("click", async () => {
@@ -806,10 +821,8 @@ function mountWheel(target, props) {
       <div class="kw-win-body"><p>Код подарка: <b>${esc(code)}</b>. Нажмите, чтобы забрать его на свой аккаунт.</p>
         <button type="button" class="kw-act main" data-get>Получить подарок</button>
         <button type="button" class="kw-act ghost" data-close>Позже</button></div>`;
-    m.win.querySelector("[data-close]").addEventListener("click", () => {
-      m.close();
-      if (st.modal === m) st.modal = null;
-    });
+    m.win.querySelector("[data-close]").addEventListener("click", () => closeModal(m));
+    m.dismiss = () => closeModal(m);
     m.win.querySelector("[data-get]").addEventListener("click", () => {
       root.querySelector("[data-code]").value = code;
       m.close();
