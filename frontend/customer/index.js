@@ -895,6 +895,25 @@ function mountHomeCard(target, props) {
   return st;
 }
 
+const ROW_STYLE = `
+.settings-row.kw-wheel-row{position:relative;width:100%;box-sizing:border-box;cursor:pointer;
+  border:1px solid rgba(245,190,70,.5);
+  background-image:linear-gradient(135deg,rgba(245,190,70,.13),rgba(245,190,70,.03) 60%);
+  box-shadow:0 0 0 1px rgba(245,190,70,.1),0 0 16px rgba(245,190,70,.22);
+  transition:box-shadow .2s ease,border-color .2s ease,transform .12s ease}
+.settings-row.kw-wheel-row > svg:first-child{color:#f5be46;opacity:1;filter:drop-shadow(0 0 5px rgba(245,190,70,.55))}
+.settings-row.kw-wheel-row.is-ready small{color:#f5be46}
+.settings-row.kw-wheel-row:hover{border-color:rgba(245,190,70,.75);box-shadow:0 0 0 1px rgba(245,190,70,.18),0 0 22px rgba(245,190,70,.34)}
+.settings-row.kw-wheel-row:active{transform:scale(.99)}
+.settings-row.kw-wheel-row:focus-visible{outline:2px solid #f5be46;outline-offset:2px}
+@media (prefers-reduced-motion:no-preference){
+  .settings-row.kw-wheel-row.is-ready{animation:kw-glow 3.2s ease-in-out infinite}
+}
+@keyframes kw-glow{
+  0%,100%{box-shadow:0 0 0 1px rgba(245,190,70,.1),0 0 14px rgba(245,190,70,.2)}
+  50%{box-shadow:0 0 0 1px rgba(245,190,70,.22),0 0 26px rgba(245,190,70,.42)}}
+`;
+
 // ------------------------------------------------------------------ settings row
 
 // A row styled like the neighbouring "Notifications" / "Security" rows: the app's own
@@ -903,8 +922,9 @@ function mountSettingsWheel(target, props) {
   const host = props.host;
   const root = document.createElement("div");
   root.className = "plugin-host";
-  // Full row width, like the neighbouring rows (the host wrapper would otherwise shrink-wrap the button).
-  root.style.cssText = "display:grid;gap:8px;width:100%;min-width:0";
+  // The host wrapper would shrink-wrap the button; the row must be as wide as its neighbours.
+  // The gap matches the spacing the settings list keeps around its dividers, so the row sits evenly between two of them.
+  root.style.cssText = "display:grid;gap:22px;width:100%;min-width:0";
   target.replaceChildren(root);
   const st = { root, disposed: false, timers: [] };
   host
@@ -913,6 +933,7 @@ function mountSettingsWheel(target, props) {
       installNavIcon(d.title);
       if (st.disposed || !d.enabled || !d.prizes.length) return;
       const s = d.state;
+      const ready = Boolean(d.pending || s.can_spin);
       const hint = d.pending
         ? "Заберите выигранный приз"
         : s.can_spin
@@ -920,21 +941,18 @@ function mountSettingsWheel(target, props) {
           : s.reason === "no_spins"
             ? `Следующее через ${timeLeft(s.next_free_at)}`
             : "Крутите колесо и забирайте подарки";
-      root.innerHTML = `<button type="button" class="settings-row settings-row-wheel" data-kw-row>
+      root.innerHTML = `<style>${ROW_STYLE}</style>
+        <button type="button" class="settings-row settings-row-wheel kw-wheel-row${ready ? " is-ready" : ""}" data-kw-row>
           ${SLOT_ICON.replace(/width="\d+"/, 'width="21"').replace(/height="\d+"/, 'height="21"')}
           <span><strong>${esc(d.title)}</strong><small>${esc(hint)}</small></span>
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
         </button><div class="settings-divider" aria-hidden="true"></div>`;
       const row = root.querySelector("[data-kw-row]");
-      row.style.width = "100%";
-      row.style.boxSizing = "border-box";
       row.addEventListener("click", () => host.navigate("wheel"));
       if (getComputedStyle(row).display !== "grid") {
-        row.setAttribute(
-          "style",
-          "display:grid;grid-template-columns:28px minmax(0,1fr) 18px;align-items:center;gap:10px;min-height:50px;padding:9px 10px;width:100%;" +
-            "text-align:left;border:0;color:inherit;background:transparent;font:inherit;cursor:pointer"
-        );
+        row.style.cssText +=
+          ";display:grid;grid-template-columns:28px minmax(0,1fr) 18px;align-items:center;gap:10px;min-height:50px;padding:9px 10px;" +
+          "text-align:left;color:inherit;font:inherit;cursor:pointer";
       }
     })
     .catch(() => {});
