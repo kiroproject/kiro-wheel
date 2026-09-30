@@ -868,7 +868,7 @@ function mountWheel(target, props) {
 function mountHomeCard(target, props) {
   const host = props.host;
   const root = document.createElement("div");
-  root.className = "plugin-host";
+  root.className = "plugin-host kw-home-root";
   root.innerHTML = `<style>${STYLE}</style>`;
   target.replaceChildren(root);
   const st = { root, disposed: false, timers: [] };
@@ -891,6 +891,8 @@ function mountHomeCard(target, props) {
     .then((d) => {
       installNavIcon(d.title);
       if (st.disposed || !d.enabled || !d.prizes.length) return;
+      // The banner is registered on several home points; only the first one in the page is shown.
+      if (document.querySelector(".kw-home-root") !== root) return;
       const s = d.state;
       const text = d.pending
         ? "У вас есть неполученный приз"
