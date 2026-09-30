@@ -903,6 +903,8 @@ function mountSettingsWheel(target, props) {
   const host = props.host;
   const root = document.createElement("div");
   root.className = "plugin-host";
+  // Full row width, like the neighbouring rows (the host wrapper would otherwise shrink-wrap the button).
+  root.style.cssText = "display:grid;gap:8px;width:100%;min-width:0";
   target.replaceChildren(root);
   const st = { root, disposed: false, timers: [] };
   host
@@ -924,6 +926,8 @@ function mountSettingsWheel(target, props) {
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
         </button><div class="settings-divider" aria-hidden="true"></div>`;
       const row = root.querySelector("[data-kw-row]");
+      row.style.width = "100%";
+      row.style.boxSizing = "border-box";
       row.addEventListener("click", () => host.navigate("wheel"));
       if (getComputedStyle(row).display !== "grid") {
         row.setAttribute(
