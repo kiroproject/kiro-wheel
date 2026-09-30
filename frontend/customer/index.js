@@ -208,6 +208,41 @@ function patchNavIcon() {
     if (!svg || svg.hasAttribute("data-kw-icon")) return;
     svg.outerHTML = SLOT_ICON;
   });
+  arrangeNav();
+}
+
+// Core appends plugin items after "Settings". The bar is a CSS grid, so `order` moves the wheel
+// to the middle, and the Support entry (reachable from Settings via our card) leaves the bar.
+function arrangeNav() {
+  document.querySelectorAll("nav.bottom-nav").forEach((nav) => {
+    const items = Array.from(nav.children);
+    const primary = items.filter((el) => el.matches("button[data-nav-level=primary]:not(.rail-admin-entry)"));
+    const wheel = primary.find((el) => NAV_LABELS.has(el.getAttribute("aria-label")));
+    if (!wheel) return;
+    const rest = primary.filter((el) => el !== wheel);
+    // Support and Settings are the only core buttons with the attention marker; Support comes first.
+    const marked = rest.filter((el) => el.classList.contains("attention-wrap"));
+    const support = marked.length > 1 ? marked[0] : null;
+    if (support && !support.hasAttribute("data-kw-hidden")) {
+      support.setAttribute("data-kw-hidden", "1");
+      support.style.display = "none";
+    }
+    const visible = rest.filter((el) => el !== support);
+    const at = Math.floor((visible.length + 1) / 2);
+    const sequence = [...visible.slice(0, at), wheel, ...visible.slice(at)];
+    sequence.forEach((el, i) => {
+      if (el.style.order !== String(i + 1)) el.style.order = String(i + 1);
+    });
+    const count = sequence.length;
+    if (nav.style.getPropertyValue("--bottom-nav-visible-items") !== String(count + 0) && support) {
+      nav.style.setProperty("--bottom-nav-visible-items", String(count));
+    }
+    // Non-primary children (brand, settings subnav, admin entry) keep their place after the buttons.
+    items.filter((el) => !primary.includes(el)).forEach((el, i) => {
+      const order = el.classList.contains("rail-brand") ? "0" : String(100 + i);
+      if (el.style.order !== order) el.style.order = order;
+    });
+  });
 }
 
 function installNavIcon(label) {
@@ -887,9 +922,35 @@ function mountHomeCard(target, props) {
   return st;
 }
 
+// ------------------------------------------------------------------ settings entry: Support
+
+function mountSettingsSupport(target, props) {
+  const host = props.host;
+  const root = document.createElement("div");
+  root.className = "plugin-host";
+  root.innerHTML = `<style>
+    .kw-link{display:flex;align-items:center;gap:12px;width:100%;box-sizing:border-box;padding:14px 16px;border-radius:var(--radius,14px);
+      border:1px solid var(--border,#2b3140);background:var(--panel,transparent);color:var(--text,#eef1f6);font:inherit;text-align:left;cursor:pointer}
+    .kw-link svg{flex:none;opacity:.9}
+    .kw-link div{flex:1;min-width:0}
+    .kw-link b{display:block;font-size:15px}
+    .kw-link span{display:block;margin-top:2px;font-size:12.5px;color:var(--muted,#8b93a3)}
+  </style>
+  <button type="button" class="kw-link">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3.5"/><path d="M5.6 5.6l3.9 3.9M14.5 14.5l3.9 3.9M18.4 5.6l-3.9 3.9M9.5 14.5l-3.9 3.9"/></svg>
+    <div><b>Поддержка</b><span>Обращения и ответы от команды</span></div>
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+  </button>`;
+  target.replaceChildren(root);
+  root.querySelector("button").addEventListener("click", () => host.navigateSection("support"));
+  installNavIcon();
+  return { root, disposed: false, timers: [] };
+}
+
 export function mountView(view, element, props) {
   installNavIcon();
   if (view === "home-card") return mountHomeCard(element, props);
+  if (view === "settings-support") return mountSettingsSupport(element, props);
   return mountWheel(element, props);
 }
 

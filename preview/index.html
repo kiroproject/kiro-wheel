@@ -18,13 +18,16 @@
 </head>
 <body>
 <div class="wrap" id="wrap">
-  <div class="tabs"><button data-v="wheel">Клиент</button><button data-v="card">Карточка</button><button data-v="admin">Админка</button></div>
+  <div class="tabs"><button data-v="wheel">Клиент</button><button data-v="card">Карточка</button><button data-v="admin">Админка</button><button data-v="support">Настройки</button></div>
   <div id="app"></div>
 </div>
-<nav class="bottom-nav">
-  <button aria-label="Главная"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11l9-8 9 8v10H3z"/></svg><span>Главная</span></button>
-  <button aria-label="Поддержка"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/></svg><span>Поддержка</span></button>
-  <button aria-label="Колесо удачи"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="8" width="18" height="13" rx="2"/><path d="M12 8v13M3 12h18"/></svg><span>Колесо удачи</span></button>
+<nav class="bottom-nav" style="display:grid;grid-auto-flow:column;grid-auto-columns:1fr">
+  <button data-nav-level="primary" class="" aria-label="Главная"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="8"/></svg><span>Главная</span></button>
+  <button data-nav-level="primary" class="" aria-label="Бонусы"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="8"/></svg><span>Бонусы</span></button>
+  <button data-nav-level="primary" class="" aria-label="Устройства"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="8"/></svg><span>Устройства</span></button>
+  <button data-nav-level="primary" class="attention-wrap" aria-label="Поддержка"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="8"/></svg><span>Поддержка</span></button>
+  <button data-nav-level="primary" class="attention-wrap" aria-label="Настройки"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="8"/></svg><span>Настройки</span></button>
+  <button data-nav-level="primary" class="" aria-label="Колесо удачи"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="8"/></svg><span>Колесо удачи</span></button>
 </nav>
 <script>
   window.Telegram = { WebApp: { initDataUnsafe: { start_param: new URLSearchParams(location.search).get("sp") || "" }, openTelegramLink(u) { window.__shared = u; console.log("share", u); } } };
@@ -49,6 +52,7 @@
     version: 1,
     notify: (m) => console.log("notify:", m),
     navigate: (v) => console.log("navigate → " + v),
+    navigateSection: (v) => { window.__section = v; console.log("section → " + v); },
     async request(path, opts = {}) {
       await new Promise((r) => setTimeout(r, 200));
       const body = opts.body ? JSON.parse(opts.body) : {};
@@ -83,7 +87,7 @@
     const el = document.getElementById("app");
     document.getElementById("wrap").classList.toggle("admin", v === "admin");
     if (v === "admin") { mod = admin; inst = admin.mountView("settings", el, {}); }
-    else { mod = customer; inst = customer.mountView(v === "card" ? "home-card" : "wheel", el, { host, language: "ru", context: {} }); }
+    else { mod = customer; inst = customer.mountView(v === "card" ? "home-card" : v === "support" ? "settings-support" : "wheel", el, { host, language: "ru", context: {} }); }
   }
   window.__show = show;
   document.querySelectorAll("[data-v]").forEach((b) => b.addEventListener("click", () => show(b.dataset.v)));
