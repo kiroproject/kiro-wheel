@@ -226,7 +226,7 @@ function mountSettings(target) {
         <label>Цвет подложки<input name="tile_bg" type="color" value="${esc(c.tile_bg)}"></label>
       </form><div class="kwa-actions"><button type="button" class="kwa-btn kwa-primary" data-save-config>Сохранить настройки</button></div></div>
 
-      <div class="kwa-card"><h3>Призы <button type="button" class="kwa-btn kwa-primary" data-add>+ Добавить приз</button></h3>
+      <div class="kwa-card"><h3>Призы <span style="display:inline-flex;gap:8px;flex-wrap:wrap"><button type="button" class="kwa-btn" data-starter title="Добавить готовый набор: 15 призов с картинками. Уже существующие по названию пропускаются.">Стартовый набор (15)</button><button type="button" class="kwa-btn kwa-primary" data-add>+ Добавить приз</button></span></h3>
         <div data-editor></div>
         ${d.prizes.length ? `<div class="kwa-scroll"><table class="kwa-table">
           <tr><th></th><th>Приз</th><th>Вес</th><th>Шанс</th><th>Остаток</th><th>Выпал за 30д</th><th></th></tr>
@@ -261,6 +261,7 @@ function mountSettings(target) {
 
     root.querySelector("[data-save-config]").addEventListener("click", saveConfig);
     root.querySelector("[data-add]").addEventListener("click", () => openEditor(null));
+    root.querySelector("[data-starter]").addEventListener("click", addStarter);
     root.querySelector("[data-grant]").addEventListener("click", grantSpins);
     root.querySelectorAll("[data-edit]").forEach((b) =>
       b.addEventListener("click", () => openEditor(d.prizes.find((p) => String(p.id) === b.dataset.edit)))
@@ -418,6 +419,17 @@ function mountSettings(target) {
       }
     });
     if (!restore) box.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  async function addStarter() {
+    if (!confirm("Добавить стартовый набор из 15 призов с картинками? Призы с уже существующими названиями будут пропущены, остальные призы не изменятся.")) return;
+    try {
+      const res = await api("/presets/starter", "POST", {});
+      alert(`Добавлено призов: ${res.added}. Пропущено (уже есть): ${res.skipped}.`);
+      await load();
+    } catch (err) {
+      alert(err.message);
+    }
   }
 
   async function removePrize(id) {

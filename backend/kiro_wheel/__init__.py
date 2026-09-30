@@ -31,6 +31,7 @@ from bot.plugins.extensions.contracts import (
 from bot.plugins.spec import WEB_SCOPE_WEBAPP, Plugin, PluginContext
 
 from . import logic
+from .presets import STARTER_PRIZES
 from .logic import (
     WheelError,
     add_bonus_spins,
@@ -552,6 +553,50 @@ async def admin_upload_image(request: web.Request) -> web.Response:
     return _ok({"image_id": image_id, "url": f"{USER}/img/{image_id}"})
 
 
+async def admin_add_starter_prizes(request: web.Request) -> web.Response:
+    """Add the bundled starter set; prizes whose title already exists are left untouched."""
+    _admin(request)
+    added: list[str] = []
+    skipped: list[str] = []
+    async with get_session_factory(request)() as session:
+        position = int(
+            await session.scalar(
+                text("select coalesce(max(position), -1) + 1 from ext_kiro_wheel_prizes where deleted_at is null")
+            )
+            or 0
+        )
+        for item in STARTER_PRIZES:
+            exists = await session.scalar(
+                text("select 1 from ext_kiro_wheel_prizes where title = :t and deleted_at is null limit 1"),
+                {"t": item["title"]},
+            )
+            if exists:
+                skipped.append(item["title"])
+                continue
+            raw = base64.b64decode(item["image"])
+            image_id = hashlib.sha256(raw).hexdigest()[:40]
+            await session.execute(
+                text(
+                    "insert into ext_kiro_wheel_images (id, content_type, body) values (:id, :t, :b) "
+                    "on conflict (id) do nothing"
+                ),
+                {"id": image_id, "t": _image_type(raw) or "image/webp", "b": raw},
+            )
+            prize = clean_prize({**item, "image_id": image_id, "position": position})
+            await session.execute(
+                text(
+                    "insert into ext_kiro_wheel_prizes (title, description, kind, params, weight, stock, "
+                    "color, image_id, enabled, position) values (:title, :description, :kind, "
+                    "cast(:params as jsonb), :weight, :stock, :color, :image_id, :enabled, :position)"
+                ),
+                {**prize, "params": json.dumps(prize["params"], ensure_ascii=False)},
+            )
+            position += 1
+            added.append(item["title"])
+        await session.commit()
+    return _ok({"added": len(added), "skipped": len(skipped)})
+
+
 async def admin_grant_spins(request: web.Request) -> web.Response:
     _admin(request)
     body = await _json_body(request)
@@ -624,7 +669,7 @@ async def _view_policy(context: UserContext, view_id: str) -> bool:
 
 class KiroWheelPlugin(Plugin):
     name = PLUGIN_ID
-    version = "1.4.4"
+    version = "1.5.0"
     plugin_api_min_version = 1
     plugin_api_max_version = 1
 
@@ -655,6 +700,7 @@ class KiroWheelPlugin(Plugin):
         router.add_put(ADMIN + "/prizes/{prize_id:\\d+}", _guard(admin_update_prize))
         router.add_delete(ADMIN + "/prizes/{prize_id:\\d+}", _guard(admin_delete_prize))
         router.add_post(f"{ADMIN}/images", _guard(admin_upload_image))
+        router.add_post(f"{ADMIN}/presets/starter", _guard(admin_add_starter_prizes))
         router.add_post(f"{ADMIN}/spins", _guard(admin_grant_spins))
 
     def locales_dir(self) -> Path | None:
