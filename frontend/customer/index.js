@@ -865,6 +865,12 @@ function mountWheel(target, props) {
 
 // ------------------------------------------------------------------ home card
 
+// The host wraps every slot view in a margined <section>; an empty view must not leave a gap behind.
+function collapseSlot(target) {
+  const box = target.closest && target.closest(".extension-content");
+  if (box) box.style.display = "none";
+}
+
 function mountHomeCard(target, props) {
   const host = props.host;
   const root = document.createElement("div");
@@ -890,9 +896,12 @@ function mountHomeCard(target, props) {
     .request("/state")
     .then((d) => {
       installNavIcon(d.title);
-      if (st.disposed || !d.enabled || !d.prizes.length) return;
+      if (st.disposed) return;
       // The banner is registered on several home points; only the first one in the page is shown.
-      if (document.querySelector(".kw-home-root") !== root) return;
+      if (!d.enabled || !d.prizes.length || document.querySelector(".kw-home-root") !== root) {
+        collapseSlot(target);
+        return;
+      }
       const s = d.state;
       const text = d.pending
         ? "У вас есть неполученный приз"
@@ -929,7 +938,7 @@ function mountHomeCard(target, props) {
       });
       root.appendChild(card);
     })
-    .catch(() => {});
+    .catch(() => collapseSlot(target));
   return st;
 }
 
@@ -969,7 +978,11 @@ function mountSettingsWheel(target, props) {
     .request("/state")
     .then((d) => {
       installNavIcon(d.title);
-      if (st.disposed || !d.enabled || !d.prizes.length) return;
+      if (st.disposed) return;
+      if (!d.enabled || !d.prizes.length) {
+        collapseSlot(target);
+        return;
+      }
       const s = d.state;
       const ready = Boolean(d.pending || s.can_spin);
       const hint = d.pending
@@ -993,7 +1006,7 @@ function mountSettingsWheel(target, props) {
           "text-align:left;color:inherit;font:inherit;cursor:pointer";
       }
     })
-    .catch(() => {});
+    .catch(() => collapseSlot(target));
   return st;
 }
 
