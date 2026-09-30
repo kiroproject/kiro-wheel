@@ -76,6 +76,8 @@ const STYLE = `
 .kwa-muted{color:var(--muted)}.kwa-off{opacity:.5}
 .kwa-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
 .kwa-stats{display:flex;gap:18px;flex-wrap:wrap}.kwa-stats b{display:block;font-size:20px}
+.kwa-banner-prev{width:100%;max-width:420px;aspect-ratio:3/1;border-radius:12px;border:1px dashed rgba(127,127,127,.4);background:#140a05 center/contain no-repeat;
+  display:flex;align-items:center;justify-content:center;color:#b9a48a;font-size:12px}
 .kwa-img{display:flex;align-items:center;gap:12px}.kwa-img .kwa-thumb{width:72px;height:72px}
 .kwa-msg{padding:8px 10px;border-radius:8px;background:rgba(127,127,127,.1)}
 .kwa-scroll{overflow-x:auto}
@@ -145,6 +147,29 @@ function kindFields(kind, params, f, validity) {
     default:
       return "";
   }
+}
+
+const BANNER_URL = "/api/plugins/kiro-wheel/img/";
+
+// Banners keep their proportions (no crop); wider than 1080 px is scaled down, alpha is kept.
+async function resizeBanner(file) {
+  const bitmap = await createImageBitmap(file);
+  const scale = Math.min(1, 1080 / bitmap.width);
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+  canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+  canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  let blob = null;
+  for (const quality of [0.9, 0.8, 0.65, 0.5]) {
+    blob = await new Promise((r) => canvas.toBlob(r, "image/webp", quality));
+    if (blob && blob.type === "image/webp" && blob.size <= 900 * 1024) break;
+  }
+  if (!blob || blob.type !== "image/webp") blob = await new Promise((r) => canvas.toBlob(r, "image/png"));
+  if (blob.size > 1024 * 1024) throw new Error("Картинка слишком большая, уменьшите её");
+  const buf = new Uint8Array(await blob.arrayBuffer());
+  let binary = "";
+  for (let i = 0; i < buf.length; i += 0x8000) binary += String.fromCharCode(...buf.subarray(i, i + 0x8000));
+  return btoa(binary);
 }
 
 async function resizeImage(file) {
@@ -224,6 +249,18 @@ function mountSettings(target) {
         <label>Окно выигрыша: текст<input name="win_text" type="color" value="${esc(c.win_text)}"></label>
         <label class="kwa-check"><input type="checkbox" name="tile_enabled" ${c.tile_enabled ? "checked" : ""}> Подложка под картинки призов</label>
         <label>Цвет подложки<input name="tile_bg" type="color" value="${esc(c.tile_bg)}"></label>
+        <div style="grid-column:1/-1;margin-top:6px;font-weight:600">Баннер на главной странице</div>
+        <div class="kwa-banner-box" style="grid-column:1/-1">
+          <input type="hidden" name="banner_image_id" value="${esc(c.banner_image_id || "")}">
+          <div class="kwa-banner-prev" data-banner-prev style="${c.banner_image_id ? `background-image:url('${BANNER_URL}${esc(c.banner_image_id)}')` : ""}">${c.banner_image_id ? "" : "Стандартный логотип"}</div>
+          <div class="kwa-actions" style="margin:8px 0 0">
+            <label class="kwa-btn kwa-primary" style="cursor:pointer">Загрузить свой баннер<input type="file" accept="image/png,image/jpeg,image/webp,image/gif" data-banner-file hidden></label>
+            <button type="button" class="kwa-btn" data-banner-clear ${c.banner_image_id ? "" : "hidden"}>Вернуть стандартный</button>
+            <span class="kwa-muted" data-banner-status></span>
+          </div>
+          <label class="kwa-check" style="margin-top:8px"><input type="checkbox" name="banner_fill" ${c.banner_fill ? "checked" : ""}> Растянуть на всю карточку (края обрезаются до 3:1)</label>
+          <p class="kwa-muted" style="margin:6px 0 0;line-height:1.45">Рекомендуемый размер: <b>1080×360 px</b> (пропорции 3:1), PNG или WebP с прозрачным фоном, до 1 МБ. Другие пропорции вписываются автоматически: картинка масштабируется без искажений и не выше 190 px на экране. В режиме «на всю карточку» важное держите ближе к центру: верх и низ могут обрезаться. Изменения применяются после кнопки «Сохранить настройки».</p>
+        </div>
       </form><div class="kwa-actions"><button type="button" class="kwa-btn kwa-primary" data-save-config>Сохранить настройки</button></div></div>
 
       <div class="kwa-card"><h3>Призы <span style="display:inline-flex;gap:8px;flex-wrap:wrap"><button type="button" class="kwa-btn" data-starter title="Добавить готовый набор: 15 призов с картинками. Уже существующие по названию пропускаются.">Стартовый набор (15)</button><button type="button" class="kwa-btn kwa-primary" data-add>+ Добавить приз</button></span></h3>
@@ -269,6 +306,7 @@ function mountSettings(target) {
     root.querySelectorAll("[data-del]").forEach((b) => b.addEventListener("click", () => removePrize(b.dataset.del)));
     const configForm = root.querySelector("[data-config]");
     applyValues(configForm, cache.config);
+    bindBanner();
     const keepConfig = () => (cache.config = formValues(configForm));
     configForm.addEventListener("input", keepConfig);
     configForm.addEventListener("change", keepConfig);
@@ -292,9 +330,10 @@ function mountSettings(target) {
     };
     for (const key of [
       "title", "subtitle", "daily_free_spins", "spins_per_payment", "max_bonus_spins", "day_offset_hours", "gift_ttl_days",
-      "bg_from", "bg_to", "text_color", "btn_bg", "btn_text", "win_from", "win_to", "win_text", "tile_bg",
+      "bg_from", "bg_to", "text_color", "btn_bg", "btn_text", "win_from", "win_to", "win_text", "tile_bg", "banner_image_id",
     ])
       body[key] = fd.get(key);
+    body.banner_fill = form.banner_fill.checked;
     e.target.disabled = true;
     try {
       await api("/config", "PUT", body);
@@ -419,6 +458,47 @@ function mountSettings(target) {
       }
     });
     if (!restore) box.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  function bindBanner() {
+    const form = root.querySelector("[data-config]");
+    const prev = root.querySelector("[data-banner-prev]");
+    const status = root.querySelector("[data-banner-status]");
+    const clear = root.querySelector("[data-banner-clear]");
+    const show = (id) => {
+      form.banner_image_id.value = id || "";
+      prev.style.backgroundImage = id ? `url('${BANNER_URL}${id}')` : "";
+      prev.textContent = id ? "" : "Стандартный логотип";
+      clear.hidden = !id;
+      form.dispatchEvent(new Event("change"));
+    };
+    // A restored draft may carry a banner chosen before the page was re-rendered.
+    if (form.banner_image_id.value) {
+      prev.style.backgroundImage = `url('${BANNER_URL}${form.banner_image_id.value}')`;
+      prev.textContent = "";
+      clear.hidden = false;
+    } else {
+      prev.style.backgroundImage = "";
+      prev.textContent = "Стандартный логотип";
+      clear.hidden = true;
+    }
+    root.querySelector("[data-banner-file]").addEventListener("change", async (ev) => {
+      const file = ev.target.files && ev.target.files[0];
+      if (!file) return;
+      status.textContent = "Загрузка…";
+      try {
+        const res = await api("/images", "POST", { data: await resizeBanner(file) });
+        show(res.image_id);
+        status.textContent = "Загружено, нажмите «Сохранить настройки»";
+      } catch (err) {
+        status.textContent = `Ошибка: ${err.message}`;
+      }
+      ev.target.value = "";
+    });
+    clear.addEventListener("click", () => {
+      show("");
+      status.textContent = "Будет возвращён стандартный логотип после сохранения";
+    });
   }
 
   async function addStarter() {

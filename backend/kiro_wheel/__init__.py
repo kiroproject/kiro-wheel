@@ -142,6 +142,9 @@ def _gift_link(request: web.Request, code: str) -> str:
 def _theme(config: dict[str, Any]) -> dict[str, Any]:
     theme = {key: config[key] for key in COLOR_KEYS}
     theme["tile_enabled"] = bool(config["tile_enabled"])
+    banner = str(config.get("banner_image_id") or "")
+    theme["banner"] = f"{USER}/img/{banner}" if banner else None
+    theme["banner_fill"] = bool(config.get("banner_fill"))
     return theme
 
 
@@ -669,7 +672,7 @@ async def _view_policy(context: UserContext, view_id: str) -> bool:
 
 class KiroWheelPlugin(Plugin):
     name = PLUGIN_ID
-    version = "1.5.1"
+    version = "1.6.0"
     plugin_api_min_version = 1
     plugin_api_max_version = 1
 

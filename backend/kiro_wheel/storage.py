@@ -48,6 +48,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "win_to": "#f7821b",
     "win_text": "#ffffff",
     "tile_enabled": False,
+    "banner_image_id": "",
+    "banner_fill": False,
     "tile_bg": "#ffffff",
 }
 

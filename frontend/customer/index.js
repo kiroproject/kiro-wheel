@@ -105,7 +105,10 @@ const STYLE = `
   background:radial-gradient(90% 130% at 50% -15%,rgba(255,150,40,.45),transparent 62%),linear-gradient(165deg,#2a1107,#0e0805);
   box-shadow:0 0 0 1px rgba(245,190,70,.08),0 0 22px rgba(245,190,70,.2);transition:transform .12s ease,box-shadow .2s ease}
 .kw-banner:active{transform:scale(.99)}
-.kw-banner img{display:block;width:min(100%,360px);height:auto;filter:drop-shadow(0 6px 14px rgba(0,0,0,.45));pointer-events:none}
+.kw-banner img{display:block;width:min(100%,360px);height:auto;max-height:190px;object-fit:contain;filter:drop-shadow(0 6px 14px rgba(0,0,0,.45));pointer-events:none}
+.kw-banner.fill{padding:0 0 14px;gap:10px}
+.kw-banner.fill img{width:100%;max-width:none;max-height:none;aspect-ratio:3/1;object-fit:cover;filter:none}
+.kw-banner.fill .kw-banner-row{padding:0 16px;box-sizing:border-box}
 .kw-banner-row{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%}
 .kw-banner-text{min-width:0;font-size:13px;line-height:1.3;opacity:.92}
 .kw-banner-row button{flex:none;border:0;border-radius:12px;background:var(--kbb,#fff);color:var(--kbt,#1b1b1f);padding:9px 18px;font:inherit;font-weight:800;cursor:pointer}
@@ -898,14 +901,22 @@ function mountHomeCard(target, props) {
             : ERRORS[s.reason] || "";
       const ready = Boolean(d.pending || s.can_spin);
       const card = document.createElement("div");
-      card.className = `kw-banner${ready ? " is-ready" : ""}`;
+      card.className = `kw-banner${ready ? " is-ready" : ""}${d.theme.banner && d.theme.banner_fill ? " fill" : ""}`;
       card.setAttribute("style", themeVars(d.theme));
       card.setAttribute("role", "link");
       card.setAttribute("tabindex", "0");
       card.setAttribute("aria-label", d.title);
-      card.innerHTML = `<img src="${LOGO_SRC}" alt="${esc(d.title)}">
+      card.innerHTML = `<img src="${esc(d.theme.banner || LOGO_SRC)}" alt="${esc(d.title)}">
         <div class="kw-banner-row"><span class="kw-banner-text">${esc(text)}</span>
         <button type="button">${d.pending ? "Забрать" : s.can_spin ? "Крутить" : "Открыть"}</button></div>`;
+      const pic = card.querySelector("img");
+      // A removed or unreachable custom banner falls back to the built-in logo.
+      pic.addEventListener("error", () => {
+        if (pic.src !== LOGO_SRC) {
+          card.classList.remove("fill");
+          pic.src = LOGO_SRC;
+        }
+      });
       const open = () => host.navigate("wheel");
       card.addEventListener("click", open);
       card.addEventListener("keydown", (e) => {

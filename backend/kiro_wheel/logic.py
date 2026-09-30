@@ -151,9 +151,15 @@ def clean_config(body: dict[str, Any], current: dict[str, Any]) -> dict[str, Any
         "allow_reroll",
         "allow_gift",
         "tile_enabled",
+        "banner_fill",
     ):
         if key in body:
             data[key] = bool(body[key])
+    if "banner_image_id" in body:
+        banner = str(body["banner_image_id"] or "").strip()
+        if banner and (not banner.isalnum() or len(banner) > 64):
+            raise WheelError("invalid_image")
+        data["banner_image_id"] = banner
     if "gift_ttl_days" in body:
         data["gift_ttl_days"] = _num(body["gift_ttl_days"], lo=1, hi=90, integer=True, name="gift_ttl_days")
     for key in COLOR_KEYS:

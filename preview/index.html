@@ -51,7 +51,11 @@
   ];
   let available = 3, pending = null, spinN = 0;
   const gifts = [];
-  const theme = { bg_from: "#ff3b1d", bg_to: "#f7821b", text_color: "#ffffff", btn_bg: "#ffffff", btn_text: "#1b1b1f", win_from: "#ff3b1d", win_to: "#f7821b", win_text: "#ffffff", tile_enabled: false, tile_bg: "#ffffff" };
+  const q = new URLSearchParams(location.search);
+  const sample = (() => { const c = document.createElement("canvas"); c.width = 1080; c.height = 360; const x = c.getContext("2d");
+    const g = x.createLinearGradient(0, 0, 1080, 360); g.addColorStop(0, "#1e3a8a"); g.addColorStop(1, "#7c3aed"); x.fillStyle = g; x.fillRect(0, 0, 1080, 360);
+    x.fillStyle = "#fff"; x.font = "bold 120px system-ui"; x.textAlign = "center"; x.fillText("МОЙ БАННЕР", 540, 215); return c.toDataURL("image/png"); })();
+  const theme = { banner: q.get("banner") ? sample : null, banner_fill: q.get("fill") === "1", bg_from: "#ff3b1d", bg_to: "#f7821b", text_color: "#ffffff", btn_bg: "#ffffff", btn_text: "#1b1b1f", win_from: "#ff3b1d", win_to: "#f7821b", win_text: "#ffffff", tile_enabled: false, tile_bg: "#ffffff" };
   const state = () => ({ daily_left: Math.min(1, available), bonus: Math.max(0, available - 1), available, next_free_at: new Date(Date.now() + 5 * 3600e3).toISOString(), subscribed: true, can_spin: available > 0 && !pending, reason: available > 0 ? null : "no_spins" });
   const history = [];
   const pv = (p, source) => ({ spin_id: String(++spinN).padStart(32, "0"), prize: p, can_reroll: source !== "reroll", can_gift: p.kind !== "nothing", nothing: p.kind === "nothing", source });
@@ -85,7 +89,7 @@
     stats: { day: 4, month: 40, total: 40, players: 7 }, recent: [] };
   const realFetch = window.fetch.bind(window);
   window.fetch = async (url, opts = {}) => String(url).startsWith("/api/admin/kiro-wheel")
-    ? new Response(JSON.stringify({ ok: true, ...adminData }), { status: 200, headers: { "Content-Type": "application/json" } })
+    ? new Response(JSON.stringify(String(url).endsWith("/images") ? { ok: true, image_id: "abc123", url: "/x" } : { ok: true, ...adminData }), { status: 200, headers: { "Content-Type": "application/json" } })
     : realFetch(url, opts);
   const customer = await import("../frontend/customer/index.js?" + Date.now());
   const admin = await import("../frontend/admin/index.js?" + Date.now());
