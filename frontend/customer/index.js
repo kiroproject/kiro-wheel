@@ -895,9 +895,52 @@ function mountHomeCard(target, props) {
   return st;
 }
 
+// ------------------------------------------------------------------ settings row
+
+// A row styled like the neighbouring "Notifications" / "Security" rows: the app's own
+// `settings-row` classes carry the look, inline fallbacks keep it tidy if they ever disappear.
+function mountSettingsWheel(target, props) {
+  const host = props.host;
+  const root = document.createElement("div");
+  root.className = "plugin-host";
+  target.replaceChildren(root);
+  const st = { root, disposed: false, timers: [] };
+  host
+    .request("/state")
+    .then((d) => {
+      installNavIcon(d.title);
+      if (st.disposed || !d.enabled || !d.prizes.length) return;
+      const s = d.state;
+      const hint = d.pending
+        ? "Заберите выигранный приз"
+        : s.can_spin
+          ? `Доступно вращений: ${s.available}`
+          : s.reason === "no_spins"
+            ? `Следующее через ${timeLeft(s.next_free_at)}`
+            : "Крутите колесо и забирайте подарки";
+      root.innerHTML = `<button type="button" class="settings-row settings-row-wheel" data-kw-row>
+          ${SLOT_ICON.replace(/width="\d+"/, 'width="21"').replace(/height="\d+"/, 'height="21"')}
+          <span><strong>${esc(d.title)}</strong><small>${esc(hint)}</small></span>
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+        </button><div class="settings-divider" aria-hidden="true"></div>`;
+      const row = root.querySelector("[data-kw-row]");
+      row.addEventListener("click", () => host.navigate("wheel"));
+      if (getComputedStyle(row).display !== "grid") {
+        row.setAttribute(
+          "style",
+          "display:grid;grid-template-columns:28px minmax(0,1fr) 18px;align-items:center;gap:10px;min-height:50px;padding:9px 10px;width:100%;" +
+            "text-align:left;border:0;color:inherit;background:transparent;font:inherit;cursor:pointer"
+        );
+      }
+    })
+    .catch(() => {});
+  return st;
+}
+
 export function mountView(view, element, props) {
   installNavIcon();
   if (view === "home-card") return mountHomeCard(element, props);
+  if (view === "settings-wheel") return mountSettingsWheel(element, props);
   return mountWheel(element, props);
 }
 

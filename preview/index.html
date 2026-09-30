@@ -14,12 +14,20 @@
   nav.bottom-nav{position:fixed;left:12px;right:12px;bottom:12px;z-index:50;display:flex;justify-content:space-around;padding:12px;border-radius:22px;
     background:#10131a;border:1px solid var(--border)}
   nav.bottom-nav button{background:none;border:0;color:var(--muted);display:flex;flex-direction:column;align-items:center;gap:3px;font-size:10px}
+
+  /* copy of Minishop's settings-row look, for the preview only */
+  .settings-divider{height:1px;background:var(--border)}
+  .settings-row{display:grid;grid-template-columns:28px minmax(0,1fr) 18px;align-items:center;gap:10px;min-height:50px;padding:9px 10px;text-align:left;background:var(--panel-2);border:0;color:var(--text);font:inherit;width:100%}
+  .settings-row>svg:first-child{color:var(--text);opacity:.9}.settings-row>svg:last-child{color:var(--muted)}
+  .settings-row span{display:grid;min-width:0;gap:2px}.settings-row strong,.settings-row small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .settings-row strong{font-size:12px}.settings-row small{font-size:11px;color:var(--muted)}
+  .fake-row{display:grid;grid-template-columns:28px 1fr 18px;gap:10px;align-items:center;min-height:50px;padding:9px 10px;background:var(--panel-2)}
 </style>
 </head>
 <body>
 <div class="wrap" id="wrap">
-  <div class="tabs"><button data-v="wheel">Клиент</button><button data-v="card">Карточка</button><button data-v="admin">Админка</button><button data-v="support">Настройки</button></div>
-  <div id="app"></div>
+  <div class="tabs"><button data-v="wheel">Клиент</button><button data-v="card">Карточка</button><button data-v="admin">Админка</button><button data-v="row">Настройки</button></div>
+  <div class="settings-divider"></div><div class="fake-row"><span>🔔</span><span><b style="font-size:12px">Уведомления</b><br><small style="color:var(--muted)">Отдельно выберите, что можно отправлять</small></span><span>→</span></div><div class="settings-divider"></div><div class="fake-row"><span>🛡</span><span><b style="font-size:12px">Безопасность</b><br><small style="color:var(--muted)">Способы входа и восстановление доступа</small></span><span>→</span></div><div class="settings-divider"></div><div id="app"></div>
 </div>
 <nav class="bottom-nav" style="display:grid;grid-auto-flow:column;grid-auto-columns:1fr">
   <button data-nav-level="primary" class="" aria-label="Главная"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="8"/></svg><span>Главная</span></button>
@@ -87,7 +95,7 @@
     const el = document.getElementById("app");
     document.getElementById("wrap").classList.toggle("admin", v === "admin");
     if (v === "admin") { mod = admin; inst = admin.mountView("settings", el, {}); }
-    else { mod = customer; inst = customer.mountView(v === "card" ? "home-card" : v === "support" ? "settings-support" : "wheel", el, { host, language: "ru", context: {} }); }
+    else { mod = customer; inst = customer.mountView(v === "card" ? "home-card" : v === "row" ? "settings-wheel" : "wheel", el, { host, language: "ru", context: {} }); }
   }
   window.__show = show;
   document.querySelectorAll("[data-v]").forEach((b) => b.addEventListener("click", () => show(b.dataset.v)));
