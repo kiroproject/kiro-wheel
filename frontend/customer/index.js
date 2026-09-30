@@ -871,6 +871,20 @@ function collapseSlot(target) {
   if (box) box.style.display = "none";
 }
 
+// The home screen is a grid exactly one viewport tall; the brand block gets what the lower blocks leave,
+// so a tall banner squeezed the logo to nothing. While our banner is shown the screen may grow instead
+// (the same height:auto/min-height recipe the app's own preview uses) and simply scrolls.
+const FLOW_CLASS = "kw-home-flow";
+
+function ensureFlowStyle() {
+  if (document.getElementById("kiro-wheel-home-flow")) return;
+  const style = document.createElement("style");
+  style.id = "kiro-wheel-home-flow";
+  style.textContent = `.home-layout.${FLOW_CLASS}{height:auto;min-height:calc(100dvh - 34px)}
+@media (min-width:1024px){.home-layout.${FLOW_CLASS}{min-height:calc(100dvh - 74px)}}`;
+  document.head.appendChild(style);
+}
+
 function mountHomeCard(target, props) {
   const host = props.host;
   const root = document.createElement("div");
@@ -937,6 +951,12 @@ function mountHomeCard(target, props) {
         }
       });
       root.appendChild(card);
+      const layout = root.closest(".home-layout");
+      if (layout) {
+        ensureFlowStyle();
+        layout.classList.add(FLOW_CLASS);
+        st.layout = layout;
+      }
     })
     .catch(() => collapseSlot(target));
   return st;
@@ -1030,5 +1050,6 @@ export function unmountView(instance) {
   });
   if (instance.drum) instance.drum.destroy();
   if (instance.modal) instance.modal.close();
+  if (instance.layout) instance.layout.classList.remove(FLOW_CLASS);
   instance.root.remove();
 }

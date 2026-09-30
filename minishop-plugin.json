@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "artifact": "dist/kiro-wheel-1.6.2.zip",
-  "sha256": "9eb9f74a656141304cdaa88944c47ca9a0277aa5e6c279acdc4e208be18f2786",
-  "version": "1.6.2"
+  "artifact": "dist/kiro-wheel-1.6.3.zip",
+  "sha256": "c0eaf6e676df8219ed71d98b9224366b149bab9dcf5e2ff20d6960af4ae09499",
+  "version": "1.6.3"
 }
