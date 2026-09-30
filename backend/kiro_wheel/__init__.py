@@ -669,7 +669,7 @@ async def _view_policy(context: UserContext, view_id: str) -> bool:
 
 class KiroWheelPlugin(Plugin):
     name = PLUGIN_ID
-    version = "1.5.0"
+    version = "1.5.1"
     plugin_api_min_version = 1
     plugin_api_max_version = 1
 
