@@ -50,6 +50,16 @@
     { id: 4, badge: "+50 ₽", title: "+50 на баланс", kind: "balance", label: "+50 ₽ на баланс", color: "#5b4fe0", image: svg("🏛️", "#8a5cf6"), tile: null },
   ];
   let available = 3, pending = null, spinN = 0;
+  const rewards = [1, 1, 2, 3, 4, 5, 10];
+  const mode = new URLSearchParams(location.search).get("daily") || "ready";
+  let dailyDone = mode === "claimed" ? 3 : 0, canClaim = mode !== "claimed";
+  const dailyView = () => {
+    const claimed = canClaim ? (mode === "ready" ? 2 : 0) : dailyDone;
+    const next = claimed + 1;
+    return { enabled: mode !== "off", can_claim: mode !== "off" && canClaim, reason: canClaim ? null : "claimed_today", streak: claimed, next_day: next > 7 ? 1 : next,
+      today_tickets: canClaim ? rewards[next - 1] : 0, broken: mode === "broken", next_at: new Date(Date.now() + (9 * 60 + 12) * 1000).toISOString(),
+      days: rewards.map((t, i) => ({ day: i + 1, tickets: t, status: i < claimed ? "claimed" : i === claimed && canClaim ? "current" : "locked" })) };
+  };
   const gifts = [];
   const q = new URLSearchParams(location.search);
   const sample = (() => { const c = document.createElement("canvas"); c.width = 1080; c.height = 360; const x = c.getContext("2d");
@@ -68,7 +78,8 @@
     async request(path, opts = {}) {
       await new Promise((r) => setTimeout(r, 200));
       const body = opts.body ? JSON.parse(opts.body) : {};
-      if (path === "/state") return { theme, feed: [{ name: "g***ck", badge: "−5%", at: new Date(Date.now()-7200e3).toISOString() }, { name: "s***od", badge: "+30 дн.", at: new Date(Date.now()-3.1*3600e3).toISOString() }], title: "Колесо удачи", subtitle: "Крутите колесо и забирайте подарки", enabled: true, prizes, state: state(), pending, gifts, rules: { daily_free_spins: 1, spins_per_payment: 3, allow_gift: true, allow_reroll: true, gift_ttl_days: 7 }, history };
+      if (path === "/state") return { theme, feed: [{ name: "g***ck", badge: "−5%", at: new Date(Date.now()-7200e3).toISOString() }, { name: "s***od", badge: "+30 дн.", at: new Date(Date.now()-3.1*3600e3).toISOString() }], title: "Колесо удачи", subtitle: "Крутите колесо и забирайте подарки", enabled: true, prizes, state: state(), daily: dailyView(), pending, gifts, rules: { daily_free_spins: 1, spins_per_payment: 3, allow_gift: true, allow_reroll: true, gift_ttl_days: 7 }, history };
+      if (path === "/daily/claim") { const v = dailyView(); canClaim = false; dailyDone = v.next_day; available += v.today_tickets; return { granted: v.today_tickets, day: v.next_day, daily: dailyView(), state: state() }; }
       if (path === "/spin") { if (available <= 0) throw { ok: false, error: "no_spins" }; available--; pending = pv(rnd(), "daily"); return { pending, state: state() }; }
       if (path === "/resolve") {
         const p = pending.prize;

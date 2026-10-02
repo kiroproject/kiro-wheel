@@ -18,6 +18,7 @@ from bot.services.promo_effects import PromoEffects
 
 from bot.plugins.extensions.contracts import ExtensionError
 
+from . import daily
 from .storage import COLOR_KEYS, PLUGIN_ID, PRIZE_KINDS, list_prizes, load_config
 
 logger = logging.getLogger(__name__)
@@ -160,6 +161,13 @@ def clean_config(body: dict[str, Any], current: dict[str, Any]) -> dict[str, Any
         if banner and (not banner.isalnum() or len(banner) > 64):
             raise WheelError("invalid_image")
         data["banner_image_id"] = banner
+    if "daily_enabled" in body:
+        data["daily_enabled"] = bool(body["daily_enabled"])
+    if "daily_rewards" in body:
+        try:
+            data["daily_rewards"] = daily.clean_rewards(body["daily_rewards"])
+        except daily.DailyError as exc:
+            raise WheelError(exc.code) from exc
     if "gift_ttl_days" in body:
         data["gift_ttl_days"] = _num(body["gift_ttl_days"], lo=1, hi=90, integer=True, name="gift_ttl_days")
     for key in COLOR_KEYS:
@@ -265,7 +273,8 @@ async def spin_state(session: AsyncSession, user_id: int, config: dict[str, Any]
         )
         or 0
     )
-    daily_left = max(0, int(config["daily_free_spins"]) - daily_used)
+    # With the daily login calendar on, the automatic free spin of the day is no longer given.
+    daily_left = 0 if config.get("daily_enabled") else max(0, int(config["daily_free_spins"]) - daily_used)
     subscribed = await has_active_subscription(session, user_id)
     reason = None
     if not config["enabled"]:

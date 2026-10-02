@@ -126,7 +126,45 @@ const STYLE = `
 `;
 
 // Rendered on document.body so it is never trapped under the host layout or bottom navigation.
+const DAILY_STYLE = `
+.kw-dentry{display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:var(--radius,14px);border:1px solid var(--border);cursor:pointer;
+  background:var(--panel,transparent);color:var(--text);width:100%;font:inherit;text-align:left}
+.kw-dentry .ico{font-size:28px;flex:none;line-height:1}
+.kw-dentry .t{flex:1;min-width:0}.kw-dentry b{display:block;font-size:15px}.kw-dentry small{display:block;color:var(--muted);font-size:12.5px;margin-top:2px}
+.kw-dentry .go{flex:none;border-radius:10px;padding:8px 14px;font-weight:800;border:1px solid var(--border)}
+.kw-dentry.ready{border-color:rgba(245,190,70,.65);background-image:linear-gradient(135deg,rgba(245,190,70,.14),rgba(245,190,70,.03) 60%);
+  box-shadow:0 0 0 1px rgba(245,190,70,.1),0 0 18px rgba(245,190,70,.25)}
+.kw-dentry.ready small{color:#f5be46}
+.kw-dentry.ready .go{background:linear-gradient(180deg,#ffd75e,#f5a524);color:#4a2a00;border-color:transparent}
+@media (prefers-reduced-motion:no-preference){.kw-dentry.ready{animation:kw-dglow 3.2s ease-in-out infinite}}
+@keyframes kw-dglow{0%,100%{box-shadow:0 0 0 1px rgba(245,190,70,.1),0 0 14px rgba(245,190,70,.2)}50%{box-shadow:0 0 0 1px rgba(245,190,70,.22),0 0 26px rgba(245,190,70,.42)}}
+`;
+
 const MODAL_STYLE = `
+.kw-win.kw-daily-win{background:linear-gradient(180deg,#2b1a68 0%,#150b45 45%,#0a0630 100%);border:1px solid rgba(255,255,255,.14);padding:18px 14px 16px;max-width:400px;color:#fff;position:relative}
+.kw-daily-win h3{margin:0 0 4px;font-size:21px;font-weight:900;letter-spacing:.02em;text-transform:uppercase}
+.kw-daily-win .sub{margin:0 0 12px;opacity:.85;font-size:13.5px;line-height:1.35}
+.kw-dgrid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;text-align:center}
+.kw-day{position:relative;border-radius:14px;border:2px solid rgba(124,92,255,.75);background:#1b0f4d;padding:3px 3px 5px;display:flex;flex-direction:column;align-items:stretch;min-height:96px;overflow:hidden}
+.kw-day small{font-size:11px;font-weight:800;opacity:.9;padding:1px 0 3px}
+.kw-day .art{position:relative;flex:1;border-radius:9px;background:#2a0f08;display:flex;align-items:center;justify-content:center;min-height:62px}
+.kw-day .art svg{width:88%;height:auto;max-height:56px}
+.kw-day .n{position:absolute;right:5px;bottom:1px;font-size:24px;font-weight:900;line-height:1;color:#fff;text-shadow:0 2px 0 #3b1a00,0 0 6px rgba(0,0,0,.6)}
+.kw-day.claimed{opacity:.5}
+.kw-day.claimed .art::after{content:"";position:absolute;inset:0;background:rgba(0,0,0,.35);border-radius:9px}
+.kw-day .ok{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:34px;height:34px;z-index:2}
+.kw-day.current{border-color:#ffd75e;background:#3a2a0a;box-shadow:0 0 16px rgba(255,200,60,.45)}
+.kw-day.current small{color:#ffd75e}
+.kw-dfoot{margin-top:14px;text-align:center}
+.kw-dtimer{margin-bottom:10px;opacity:.9;font-size:13.5px}
+.kw-dtimer b{display:block;font-size:26px;letter-spacing:.04em;font-variant-numeric:tabular-nums;margin-top:2px}
+.kw-dbtn{width:100%;border:0;border-radius:16px;padding:14px;font:inherit;font-size:17px;font-weight:900;text-transform:uppercase;cursor:pointer;
+  background:linear-gradient(180deg,#d8d0ff,#b9acff);color:#1d0f5a;box-shadow:0 4px 0 #6b5bd1}
+.kw-dbtn.gold{background:linear-gradient(180deg,#ffe07a,#f5a524);color:#4a2a00;box-shadow:0 4px 0 #b4730b}
+.kw-dbtn[disabled]{opacity:.6;cursor:default}
+.kw-dplus{position:absolute;left:50%;top:44%;transform:translate(-50%,0);font-size:34px;font-weight:900;color:#ffd75e;text-shadow:0 3px 0 #6b3a00;pointer-events:none;animation:kw-dplus 1.6s ease-out forwards;z-index:5}
+@keyframes kw-dplus{0%{opacity:0;transform:translate(-50%,20px) scale(.6)}20%{opacity:1;transform:translate(-50%,0) scale(1.15)}100%{opacity:0;transform:translate(-50%,-70px) scale(1)}}
+
 .kw-overlay{position:fixed;top:0;left:0;right:0;bottom:0;margin:0;z-index:2147483000;background:rgba(0,0,0,.62);overflow:hidden;
   display:flex;align-items:center;justify-content:center;box-sizing:border-box;
   padding:max(16px,env(safe-area-inset-top)) 16px max(16px,env(safe-area-inset-bottom));
@@ -188,6 +226,23 @@ function picHtml(p, theme) {
 function stickerHtml(p, theme) {
   return `${picHtml(p, theme)}<div class="kw-badge" style="--c:${esc(colorOf(p))}">${esc(p.badge || p.label)}</div>
     <div class="kw-cap">${esc(p.title)}</div>`;
+}
+
+let ticketUid = 0;
+
+// Stack of golden tickets: more tickets in the reward means a bigger stack.
+function ticketArt(n) {
+  const id = `tk${++ticketUid}`;
+  const count = n >= 10 ? 4 : n >= 5 ? 3 : n >= 3 ? 2 : 1;
+  const shape = (x, y, r) => `<g transform="translate(${x} ${y}) rotate(${r})"><path d="M-22 -13h44a4 4 0 0 1 4 4v4a5 5 0 0 0 0 10v4a4 4 0 0 1-4 4h-44a4 4 0 0 1-4-4v-4a5 5 0 0 0 0-10v-4a4 4 0 0 1 4-4z" fill="url(#${id})" stroke="#a86a00" stroke-width="1.6"/><path d="M-9 -6h18M-9 0h18M-9 6h11" stroke="#a86a00" stroke-width="2" stroke-linecap="round" opacity=".55"/></g>`;
+  const spots = [[0, 0, -4], [6, -9, 6], [-7, 8, -9], [8, 9, 5]].slice(0, count).reverse();
+  return `<svg viewBox="-34 -30 68 60" aria-hidden="true"><defs><linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffe98a"/><stop offset="1" stop-color="#f0a21c"/></linearGradient></defs>${spots.map(([x, y, r]) => shape(x, y, r)).join("")}</svg>`;
+}
+
+function clock(iso) {
+  const total = Math.max(0, Math.floor((new Date(iso).getTime() - Date.now()) / 1000));
+  const pad = (v) => String(v).padStart(2, "0");
+  return `${pad(Math.floor(total / 3600))}:${pad(Math.floor((total % 3600) / 60))}:${pad(total % 60)}`;
 }
 
 function timeLeft(iso) {
@@ -534,7 +589,7 @@ function mountWheel(target, props) {
   const host = props.host;
   const root = document.createElement("div");
   root.className = "kw plugin-host";
-  root.innerHTML = `<style>${STYLE}</style><div data-body><p style="color:var(--muted)">Загрузка…</p></div>`;
+  root.innerHTML = `<style>${STYLE}${DAILY_STYLE}</style><div data-body><p style="color:var(--muted)">Загрузка…</p></div>`;
   target.replaceChildren(root);
   const st = { host, root, data: null, drum: null, busy: false, disposed: false, timers: [], modal: null };
   let giftParam = takeGiftCode();
@@ -557,13 +612,16 @@ function mountWheel(target, props) {
   function ctaText(s) {
     if (st.data.pending) return "Заберите выигрыш";
     if (s.can_spin) return "Крутить";
+    const dl = st.data.daily;
+    if (s.reason === "no_spins" && dl && dl.enabled) return dl.can_claim ? "Заберите ежедневную награду" : `Новая награда через ${timeLeft(dl.next_at)}`;
     if (s.reason === "no_spins") return `Следующее вращение через ${timeLeft(s.next_free_at)}`;
     return ERRORS[s.reason] || "Недоступно";
   }
 
   function noteText(d) {
     const parts = [];
-    if (d.rules.daily_free_spins) parts.push(`${d.rules.daily_free_spins} бесплатное вращение в день`);
+    if (d.daily && d.daily.enabled) parts.push("билетики за ежедневный вход");
+    else if (d.rules.daily_free_spins) parts.push(`${d.rules.daily_free_spins} бесплатное вращение в день`);
     if (d.rules.spins_per_payment) parts.push(`+${d.rules.spins_per_payment} за каждую оплату`);
     if (d.state.bonus) parts.push(`бонусных: ${d.state.bonus}`);
     return parts.join(" · ");
@@ -574,7 +632,7 @@ function mountWheel(target, props) {
     const s = d.state;
     const cta = root.querySelector(".kw-cta");
     if (!cta) return;
-    cta.disabled = st.busy || !(s.can_spin || d.pending);
+    cta.disabled = st.busy || !(s.can_spin || d.pending || (d.daily && d.daily.can_claim));
     cta.textContent = st.busy ? "Крутим…" : ctaText(s);
     root.querySelector(".kw-count b").textContent = String(s.available);
     root.querySelector(".kw-note").textContent = noteText(d);
@@ -648,6 +706,7 @@ function mountWheel(target, props) {
         <button type="button" class="kw-cta"></button>
         <div class="kw-note"></div>
       </div>
+      <div data-daily></div>
       <div class="kw-card" data-gifts></div>
       <div class="kw-card"><h3>Что можно выиграть</h3><div class="kw-grid">${d.prizes
         .map((p) => {
@@ -660,15 +719,121 @@ function mountWheel(target, props) {
     st.drum = createDrum(body.querySelector(".kw-drum"), d.prizes, d.theme);
     body.querySelector(".kw-cta").addEventListener("click", onCta);
     updateStatus();
+    paintDailyEntry();
     if (d.pending && !st.modal) {
       st.drum.jumpTo(d.pending.prize);
       showDecision(d.pending);
     }
     if (giftParam && !d.pending && !st.modal) offerGift(giftParam);
+    maybeAutoOpenDaily();
+  }
+
+  function paintDailyEntry() {
+    const box = root.querySelector("[data-daily]");
+    const dl = st.data.daily;
+    if (!box) return;
+    if (!dl || !dl.enabled) {
+      box.innerHTML = "";
+      return;
+    }
+    const left = dl.can_claim ? `Сегодня +${dl.today_tickets} 🎟️ — заберите награду` : dl.reason === "claimed_today" ? `Получено. Новая через ${clock(dl.next_at)}` : dl.reason === "subscription_required" ? "Нужна активная подписка" : "";
+    box.innerHTML = `<button type="button" class="kw-dentry${dl.can_claim ? " ready" : ""}"><span class="ico">🎁</span>
+      <span class="t"><b>Ежедневные награды</b><small data-dsub>${esc(left)} · день ${dl.can_claim ? dl.next_day : dl.streak} из 7</small></span>
+      <span class="go">${dl.can_claim ? "Забрать" : "Открыть"}</span></button>`;
+    box.querySelector("button").addEventListener("click", openDaily);
+    if (!dl.can_claim && dl.reason === "claimed_today") {
+      const sub = box.querySelector("[data-dsub]");
+      const tick = () => {
+        if (!sub.isConnected) return;
+        if (new Date(dl.next_at).getTime() <= Date.now()) {
+          refresh(true);
+          return;
+        }
+        sub.textContent = `Получено. Новая через ${clock(dl.next_at)} · день ${dl.streak} из 7`;
+        st.timers.push(setTimeout(tick, 1000));
+      };
+      st.timers.push(setTimeout(tick, 1000));
+    }
+  }
+
+  function maybeAutoOpenDaily() {
+    const dl = st.data.daily;
+    if (!dl || !dl.can_claim || st.data.pending || st.modal || giftParam) return;
+    const key = `kiroWheelDailySeen:${dl.next_at}`;
+    try {
+      if (sessionStorage.getItem(key)) return;
+      sessionStorage.setItem(key, "1");
+    } catch {}
+    openDaily();
+  }
+
+  function openDaily() {
+    if (st.modal || st.disposed) return;
+    const m = openModal(st.data.theme);
+    st.modal = m;
+    m.win.classList.add("kw-daily-win");
+    let timer = 0;
+    const close = () => {
+      clearInterval(timer);
+      m.close();
+      if (st.modal === m) st.modal = null;
+      if (st.drum) st.drum.resumeIdle();
+      paintDailyEntry();
+    };
+    m.dismiss = close;
+    const draw = () => {
+      const dl = st.data.daily;
+      m.win.innerHTML = `<h3>Ежедневные награды</h3>
+        <p class="sub">${dl.broken ? "Серия прервалась, начинаем сначала. " : ""}Заходите каждый день и забирайте билетики для колеса удачи.</p>
+        <div class="kw-dgrid">${dl.days.map((x) => `<div class="kw-day ${x.status}"><small>${x.day} день</small>
+          <div class="art">${ticketArt(x.tickets)}${x.status === "claimed" ? `<svg class="ok" viewBox="0 0 24 24" fill="none" stroke="#4ade80" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg>` : ""}<span class="n">${x.tickets}</span></div></div>`).join("")}</div>
+        <div class="kw-dfoot">${dl.can_claim
+          ? `<button type="button" class="kw-dbtn gold" data-claim>Забрать +${dl.today_tickets} 🎟️</button>`
+          : `${dl.reason === "claimed_today" ? `<div class="kw-dtimer">Новая награда через<b data-clock>${clock(dl.next_at)}</b></div>` : `<div class="kw-dtimer">${esc(dl.reason === "subscription_required" ? "Для наград нужна активная подписка" : "Награды сейчас недоступны")}</div>`}<button type="button" class="kw-dbtn" data-close>К колесу</button>`}</div>`;
+      m.win.querySelector("[data-close]")?.addEventListener("click", close);
+      m.win.querySelector("[data-claim]")?.addEventListener("click", (e) => claim(e.currentTarget));
+      clearInterval(timer);
+      const clockEl = m.win.querySelector("[data-clock]");
+      if (clockEl) {
+        timer = setInterval(() => {
+          if (!clockEl.isConnected || st.disposed) return clearInterval(timer);
+          if (new Date(dl.next_at).getTime() <= Date.now()) {
+            clearInterval(timer);
+            refresh(true).then(() => st.data.daily.can_claim && draw());
+            return;
+          }
+          clockEl.textContent = clock(dl.next_at);
+        }, 1000);
+        st.timers.push(timer);
+      }
+    };
+    const claim = async (btn) => {
+      btn.disabled = true;
+      try {
+        const res = await st.host.request("/daily/claim", { method: "POST", body: JSON.stringify({}) });
+        st.data.daily = res.daily;
+        st.data.state = res.state;
+        draw();
+        updateStatus();
+        const plus = document.createElement("div");
+        plus.className = "kw-dplus";
+        plus.textContent = res.granted ? `+${res.granted} 🎟️` : "Засчитано";
+        m.win.appendChild(plus);
+        setTimeout(() => plus.remove(), 1700);
+        if (res.granted) confetti(m.win);
+      } catch (err) {
+        btn.disabled = false;
+        st.host.notify(errorText(err, "Не удалось получить награду"));
+        refresh(true);
+      }
+    };
+    draw();
   }
 
   function onCta() {
     if (st.data.pending) return showDecision(st.data.pending);
+    const dl = st.data.daily;
+    if (!st.data.state.can_spin && dl && dl.can_claim) return openDaily();
     spinNow();
   }
 
@@ -932,12 +1097,14 @@ function mountHomeCard(target, props) {
       const s = d.state;
       const text = d.pending
         ? "У вас есть неполученный приз"
-        : s.can_spin
+        : d.daily && d.daily.can_claim
+          ? `🎁 Заберите ежедневную награду: +${d.daily.today_tickets} 🎟️`
+          : s.can_spin
           ? `Доступно вращений: ${s.available}`
           : s.reason === "no_spins"
             ? `Следующее через ${timeLeft(s.next_free_at)}`
             : ERRORS[s.reason] || "";
-      const ready = Boolean(d.pending || s.can_spin);
+      const ready = Boolean(d.pending || s.can_spin || (d.daily && d.daily.can_claim));
       const card = document.createElement("div");
       card.className = `kw-banner${ready ? " is-ready" : ""}${d.theme.banner && d.theme.banner_fill ? " fill" : ""}`;
       card.setAttribute("style", themeVars(d.theme));
@@ -1017,10 +1184,12 @@ function mountSettingsWheel(target, props) {
         return;
       }
       const s = d.state;
-      const ready = Boolean(d.pending || s.can_spin);
+      const ready = Boolean(d.pending || s.can_spin || (d.daily && d.daily.can_claim));
       const hint = d.pending
         ? "Заберите выигранный приз"
-        : s.can_spin
+        : d.daily && d.daily.can_claim
+          ? `🎁 Ежедневная награда: +${d.daily.today_tickets} 🎟️`
+          : s.can_spin
           ? `Доступно вращений: ${s.available}`
           : s.reason === "no_spins"
             ? `Следующее через ${timeLeft(s.next_free_at)}`

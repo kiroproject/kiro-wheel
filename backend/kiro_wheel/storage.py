@@ -51,6 +51,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "banner_image_id": "",
     "banner_fill": False,
     "tile_bg": "#ffffff",
+    # daily login calendar: replaces the automatic free spin of the day when enabled
+    "daily_enabled": False,
+    "daily_rewards": [1, 1, 2, 2, 3, 3, 5],
 }
 
 COLOR_KEYS = ("bg_from", "bg_to", "text_color", "btn_bg", "btn_text", "win_from", "win_to", "win_text", "tile_bg")
@@ -152,6 +155,21 @@ def _upgrade_0002(connection: Connection) -> None:
         connection.execute(text(statement))
 
 
+def _upgrade_0003(connection: Connection) -> None:
+    connection.exec_driver_sql(
+        """
+        CREATE TABLE IF NOT EXISTS ext_kiro_wheel_daily (
+            user_id BIGINT PRIMARY KEY,
+            streak SMALLINT NOT NULL DEFAULT 0,
+            last_day DATE,
+            total_tickets INTEGER NOT NULL DEFAULT 0,
+            claims INTEGER NOT NULL DEFAULT 0,
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+        """
+    )
+
+
 MIGRATIONS = [
     Migration(
         id=f"{PLUGIN_ID}.0001_initial",
@@ -162,6 +180,11 @@ MIGRATIONS = [
         id=f"{PLUGIN_ID}.0002_pending_and_gifts",
         description="Wheel of fortune: pending prizes, rerolls and gifts to friends",
         upgrade=_upgrade_0002,
+    ),
+    Migration(
+        id=f"{PLUGIN_ID}.0003_daily_rewards",
+        description="Wheel of fortune: daily login rewards calendar",
+        upgrade=_upgrade_0003,
     ),
 ]
 

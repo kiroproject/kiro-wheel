@@ -230,7 +230,7 @@ function mountSettings(target) {
         <label class="kwa-check"><input type="checkbox" name="notify_admins_on_manual" ${c.notify_admins_on_manual ? "checked" : ""}> Уведомлять меня о ручных призах</label>
         <label>Заголовок<input name="title" value="${esc(c.title)}" maxlength="80"></label>
         <label>Подзаголовок<input name="subtitle" value="${esc(c.subtitle)}" maxlength="200"></label>
-        <label>Бесплатных вращений в день<input name="daily_free_spins" type="number" min="0" max="20" value="${esc(c.daily_free_spins)}"></label>
+        <label>Бесплатных вращений в день<input name="daily_free_spins" type="number" min="0" max="20" value="${esc(c.daily_free_spins)}"><span class="kwa-muted">Не выдаются, пока включены ежедневные награды</span></label>
         <label>Вращений за каждую оплату<input name="spins_per_payment" type="number" min="0" max="50" value="${esc(c.spins_per_payment)}"></label>
         <label>Максимум накопленных бонусных<input name="max_bonus_spins" type="number" min="0" max="1000" value="${esc(c.max_bonus_spins)}"></label>
         <label>Смещение дня от UTC, ч (МСК = 3)<input name="day_offset_hours" type="number" min="-12" max="14" value="${esc(c.day_offset_hours)}"></label>
@@ -238,6 +238,12 @@ function mountSettings(target) {
         <label class="kwa-check"><input type="checkbox" name="allow_gift" ${c.allow_gift ? "checked" : ""}> Можно подарить приз другу</label>
         <label class="kwa-check"><input type="checkbox" name="allow_reroll" ${c.allow_reroll ? "checked" : ""}> Можно отказаться и крутить ещё раз (1 раз)</label>
         <label>Подарок действует, дней<input name="gift_ttl_days" type="number" min="1" max="90" value="${esc(c.gift_ttl_days)}"></label>
+        <div style="grid-column:1/-1;margin-top:6px;font-weight:600">Ежедневные награды за вход</div>
+        <label class="kwa-check" style="grid-column:1/-1"><input type="checkbox" name="daily_enabled" ${c.daily_enabled ? "checked" : ""}> Включить календарь ежедневных наград (заменяет бесплатное вращение раз в сутки)</label>
+        <div style="grid-column:1/-1" class="kwa-muted">Игрок получает билетики (бонусные вращения), если заходит каждый день: серия из 7 дней, пропуск дня сбрасывает её на день 1, после 7-го дня круг начинается заново. Сутки считаются по смещению пояса выше. Вращения за оплату работают как раньше.</div>
+        <div style="grid-column:1/-1;display:grid;grid-template-columns:repeat(auto-fit,minmax(90px,1fr));gap:8px">${(c.daily_rewards || [1, 1, 2, 2, 3, 3, 5])
+          .map((v, i) => `<label>День ${i + 1}<input name="daily_reward_${i}" type="number" min="0" max="100" value="${esc(v)}"></label>`)
+          .join("")}</div>
         <div style="grid-column:1/-1;margin-top:6px;font-weight:600">Оформление</div>
         <label>Фон колеса: верх<input name="bg_from" type="color" value="${esc(c.bg_from)}"></label>
         <label>Фон колеса: низ<input name="bg_to" type="color" value="${esc(c.bg_to)}"></label>
@@ -334,6 +340,8 @@ function mountSettings(target) {
     ])
       body[key] = fd.get(key);
     body.banner_fill = form.banner_fill.checked;
+    body.daily_enabled = form.daily_enabled.checked;
+    body.daily_rewards = [0, 1, 2, 3, 4, 5, 6].map((i) => Number(fd.get(`daily_reward_${i}`)));
     e.target.disabled = true;
     try {
       await api("/config", "PUT", body);

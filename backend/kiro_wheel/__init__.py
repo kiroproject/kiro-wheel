@@ -30,7 +30,7 @@ from bot.plugins.extensions.contracts import (
 )
 from bot.plugins.spec import WEB_SCOPE_WEBAPP, Plugin, PluginContext
 
-from . import logic
+from . import daily, logic
 from .presets import STARTER_PRIZES
 from .logic import (
     WheelError,
@@ -193,10 +193,11 @@ async def _state_payload(session: Any, user_id: int) -> dict[str, Any]:
         "enabled": config["enabled"],
         "prizes": prizes if config["enabled"] else [],
         "state": state,
+        "daily": await daily.get_state(session, user_id, config),
         "pending": pending_view(pending, config) if pending else None,
         "gifts": await my_gifts(session, user_id),
         "rules": {
-            "daily_free_spins": config["daily_free_spins"],
+            "daily_free_spins": 0 if config["daily_enabled"] else config["daily_free_spins"],
             "spins_per_payment": config["spins_per_payment"],
             "require_active_subscription": config["require_active_subscription"],
             "allow_gift": config["allow_gift"],
@@ -340,6 +341,21 @@ async def _notify_spins(
         await _send_user_message(bot, settings, int(telegram_id), message)
     except Exception:  # noqa: BLE001
         logger.warning("kiro-wheel: bonus spins notification skipped")
+
+
+async def user_daily_claim(request: web.Request) -> web.Response:
+    user_id = _user_id(request)
+    async with get_session_factory(request)() as session:
+        config = await load_config(session)
+        if not config["enabled"]:
+            raise WheelError("disabled", 409)
+        try:
+            result = await daily.claim(session, user_id, config, add_bonus_spins)
+        except daily.DailyError as exc:
+            raise WheelError(exc.code, exc.status) from exc
+        await session.commit()
+    fresh = await _fresh_state(request, user_id)
+    return _ok({**result, "state": fresh})
 
 
 async def user_image(request: web.Request) -> web.Response:
@@ -672,7 +688,7 @@ async def _view_policy(context: UserContext, view_id: str) -> bool:
 
 class KiroWheelPlugin(Plugin):
     name = PLUGIN_ID
-    version = "1.6.4"
+    version = "1.7.0"
     plugin_api_min_version = 1
     plugin_api_max_version = 1
 
@@ -693,6 +709,7 @@ class KiroWheelPlugin(Plugin):
         router = app.router
         router.add_get(f"{USER}/state", _guard(user_state))
         router.add_post(f"{USER}/spin", _guard(user_spin))
+        router.add_post(f"{USER}/daily/claim", _guard(user_daily_claim))
         router.add_post(f"{USER}/resolve", _guard(user_resolve))
         router.add_post(f"{USER}/gift/cancel", _guard(user_gift_cancel))
         router.add_post(f"{USER}/gift/redeem", _guard(user_gift_redeem))
