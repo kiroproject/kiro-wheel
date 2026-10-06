@@ -153,6 +153,7 @@ def clean_config(body: dict[str, Any], current: dict[str, Any]) -> dict[str, Any
         "allow_gift",
         "tile_enabled",
         "banner_fill",
+        "debug_log",
     ):
         if key in body:
             data[key] = bool(body[key])
@@ -254,6 +255,16 @@ async def has_active_subscription(session: AsyncSession, user_id: int) -> bool:
     )
 
 
+async def account_status(session: AsyncSession, user_id: int) -> str | None:
+    """None when the account may play, otherwise the reason code shown to the player and logged."""
+    banned = await session.scalar(text("select is_banned from users where user_id = :u"), {"u": user_id})
+    if banned is None:
+        return "profile_not_found"
+    if banned:
+        return "account_banned"
+    return None
+
+
 async def spin_state(session: AsyncSession, user_id: int, config: dict[str, Any]) -> dict[str, Any]:
     now = datetime.now(UTC)
     day_start = _day_start(now, int(config["day_offset_hours"]))
@@ -276,9 +287,12 @@ async def spin_state(session: AsyncSession, user_id: int, config: dict[str, Any]
     # With the daily login calendar on, the automatic free spin of the day is no longer given.
     daily_left = 0 if config.get("daily_enabled") else max(0, int(config["daily_free_spins"]) - daily_used)
     subscribed = await has_active_subscription(session, user_id)
+    access = await account_status(session, user_id)
     reason = None
     if not config["enabled"]:
         reason = "disabled"
+    elif access:
+        reason = access
     elif config["require_active_subscription"] and not subscribed:
         reason = "subscription_required"
     elif daily_left + bonus <= 0:
@@ -286,7 +300,8 @@ async def spin_state(session: AsyncSession, user_id: int, config: dict[str, Any]
     return {
         "daily_left": daily_left,
         "bonus": bonus,
-        "available": 0 if reason in {"disabled", "subscription_required"} else daily_left + bonus,
+        "available": 0 if reason in {"disabled", "subscription_required", "account_banned", "profile_not_found"} else daily_left + bonus,
+        "access": access,
         "next_free_at": (day_start + timedelta(days=1)).isoformat(),
         "subscribed": subscribed,
         "can_spin": reason is None,
@@ -501,9 +516,9 @@ async def spin(session: AsyncSession, user_id: int, request_id: str) -> dict[str
     if previous is not None:
         return {**pending_view(dict(previous), config), "repeated": True}
 
-    banned = await session.scalar(text("select is_banned from users where user_id = :u"), {"u": user_id})
-    if banned is None or banned:
-        raise WheelError("access_denied", 403)
+    access = await account_status(session, user_id)
+    if access:
+        raise WheelError(access, 403)
     if await get_pending(session, user_id):
         raise WheelError("pending_prize", 409)
     state = await spin_state(session, user_id, config)
@@ -667,9 +682,9 @@ async def redeem_gift(session: AsyncSession, user_id: int, code: str) -> dict[st
         raise WheelError("gift_expired", 409)
     if int(gift_row["from_user"]) == int(user_id):
         raise WheelError("gift_own", 409)
-    banned = await session.scalar(text("select is_banned from users where user_id = :u"), {"u": user_id})
-    if banned is None or banned:
-        raise WheelError("access_denied", 403)
+    access = await account_status(session, user_id)
+    if access:
+        raise WheelError(access, 403)
     prize = _row_json(gift_row["prize"])
     try:
         result = await _fulfil(session, prize, user_id, f"gift:{code}")

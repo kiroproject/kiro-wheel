@@ -11,6 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.migrator.engine import Migration
 
+from . import diag
+
 PLUGIN_ID = "kiro-wheel"
 
 PRIZE_KINDS = (
@@ -54,6 +56,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # daily login calendar: replaces the automatic free spin of the day when enabled
     "daily_enabled": False,
     "daily_rewards": [1, 1, 2, 2, 3, 3, 5],
+    # diagnostics: also keep per-request debug entries in the plugin journal
+    "debug_log": False,
 }
 
 COLOR_KEYS = ("bg_from", "bg_to", "text_color", "btn_bg", "btn_text", "win_from", "win_to", "win_text", "tile_bg")
@@ -170,6 +174,25 @@ def _upgrade_0003(connection: Connection) -> None:
     )
 
 
+def _upgrade_0004(connection: Connection) -> None:
+    for statement in (
+        """
+        CREATE TABLE IF NOT EXISTS ext_kiro_wheel_log (
+            id BIGSERIAL PRIMARY KEY,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            level VARCHAR(8) NOT NULL,
+            event VARCHAR(48) NOT NULL,
+            user_id BIGINT NULL,
+            path VARCHAR(160) NULL,
+            status SMALLINT NULL,
+            detail JSONB NOT NULL DEFAULT '{}'::jsonb
+        )
+        """,
+        "CREATE INDEX IF NOT EXISTS ix_ext_kiro_wheel_log_created ON ext_kiro_wheel_log (created_at)",
+    ):
+        connection.execute(text(statement))
+
+
 MIGRATIONS = [
     Migration(
         id=f"{PLUGIN_ID}.0001_initial",
@@ -186,6 +209,11 @@ MIGRATIONS = [
         description="Wheel of fortune: daily login rewards calendar",
         upgrade=_upgrade_0003,
     ),
+    Migration(
+        id=f"{PLUGIN_ID}.0004_journal",
+        description="Wheel of fortune: plugin journal for diagnostics",
+        upgrade=_upgrade_0004,
+    ),
 ]
 
 
@@ -196,6 +224,7 @@ async def load_config(session: AsyncSession) -> dict[str, Any]:
         data.update({k: v for k, v in raw.items() if k in DEFAULT_CONFIG})
     elif isinstance(raw, str):
         data.update({k: v for k, v in json.loads(raw).items() if k in DEFAULT_CONFIG})
+    diag.set_debug(bool(data.get("debug_log")))
     return data
 
 

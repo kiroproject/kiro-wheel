@@ -68,6 +68,12 @@ const STYLE = `
 .kwa-btn{border:1px solid var(--border);background:transparent;color:var(--text);border-radius:8px;padding:7px 12px;cursor:pointer;font:inherit}
 .kwa-primary{background:var(--accent);border-color:var(--accent);color:var(--accent-contrast,#fff)}
 .kwa-danger{color:#e5484d}
+.kwa-lvl{display:inline-block;min-width:44px;text-align:center;border-radius:6px;padding:1px 6px;font-size:11px;font-weight:600;
+  background:rgba(127,127,127,.18);color:var(--muted)}
+.kwa-lvl.warn{background:rgba(245,166,35,.2);color:#f5a623}
+.kwa-lvl.error{background:rgba(229,72,77,.2);color:#e5484d}
+.kwa-log td{font-size:12px;vertical-align:top}
+.kwa-log code{font-size:11px;word-break:break-all;white-space:pre-wrap}
 .kwa-table{width:100%;border-collapse:collapse}
 .kwa-table td,.kwa-table th{padding:6px;border-bottom:1px solid var(--border);text-align:left;vertical-align:middle}
 .kwa-table th{color:var(--muted);font-weight:500;font-size:12px}
@@ -238,6 +244,7 @@ function mountSettings(target) {
         <label class="kwa-check"><input type="checkbox" name="allow_gift" ${c.allow_gift ? "checked" : ""}> Можно подарить приз другу</label>
         <label class="kwa-check"><input type="checkbox" name="allow_reroll" ${c.allow_reroll ? "checked" : ""}> Можно отказаться и крутить ещё раз (1 раз)</label>
         <label>Подарок действует, дней<input name="gift_ttl_days" type="number" min="1" max="90" value="${esc(c.gift_ttl_days)}"></label>
+        <label class="kwa-check"><input type="checkbox" name="debug_log" ${c.debug_log ? "checked" : ""}> Подробный журнал (для диагностики, записывает каждый запрос состояния)</label>
         <div style="grid-column:1/-1;margin-top:6px;font-weight:600">Ежедневные награды за вход</div>
         <label class="kwa-check" style="grid-column:1/-1"><input type="checkbox" name="daily_enabled" ${c.daily_enabled ? "checked" : ""}> Включить календарь ежедневных наград (заменяет бесплатное вращение раз в сутки)</label>
         <div style="grid-column:1/-1" class="kwa-muted">Игрок получает билетики (бонусные вращения), если заходит каждый день: серия из 7 дней, пропуск дня сбрасывает её на день 1, после 7-го дня круг начинается заново. Сутки считаются по смещению пояса выше. Вращения за оплату работают как раньше.</div>
@@ -300,12 +307,31 @@ function mountSettings(target) {
               <td>${esc(r.prize)}${r.code ? `<br><code>${esc(r.code)}</code>` : ""}</td>
               <td class="kwa-muted">${esc(r.status || "")}<br>${r.source === "daily" ? "ежедневное" : r.source === "reroll" ? "перекрутка" : "бонусное"}</td></tr>`
           )
-          .join("")}</table></div>` : `<p class="kwa-muted">Вращений ещё не было</p>`}</div>`;
+          .join("")}</table></div>` : `<p class="kwa-muted">Вращений ещё не было</p>`}</div>
+
+      <div class="kwa-card"><h3>Журнал плагина <span class="kwa-muted" data-log-counts></span></h3>
+        <p class="kwa-muted" style="margin:0 0 10px">Ошибки, отказы и ключевые события колеса. Если у игроков что-то не работает,
+          скачайте журнал и отправьте разработчику: ID пользователей и коды подарков в файле скрыты.</p>
+        <div class="kwa-form" style="align-items:end">
+          <label>Показывать<select data-log-level>
+            <option value="">Все события</option><option value="warn">Предупреждения и ошибки</option><option value="error">Только ошибки</option></select></label>
+          <label class="kwa-check"><input type="checkbox" data-log-mask checked> Скрыть ID пользователей и коды подарков</label>
+        </div>
+        <div class="kwa-actions" style="margin:10px 0">
+          <button type="button" class="kwa-btn kwa-primary" data-log-download>Скачать журнал</button>
+          <button type="button" class="kwa-btn" data-log-copy>Скопировать</button>
+          <button type="button" class="kwa-btn" data-log-refresh>Обновить</button>
+          <button type="button" class="kwa-btn kwa-danger" data-log-clear>Очистить</button>
+        </div>
+        <div data-log-msg class="kwa-muted"></div>
+        <div data-log-body class="kwa-scroll"><p class="kwa-muted">Загрузка…</p></div>
+        <textarea data-log-text readonly hidden style="width:100%;min-height:160px;margin-top:8px"></textarea></div>`;
 
     root.querySelector("[data-save-config]").addEventListener("click", saveConfig);
     root.querySelector("[data-add]").addEventListener("click", () => openEditor(null));
     root.querySelector("[data-starter]").addEventListener("click", addStarter);
     root.querySelector("[data-grant]").addEventListener("click", grantSpins);
+    bindLog();
     root.querySelectorAll("[data-edit]").forEach((b) =>
       b.addEventListener("click", () => openEditor(d.prizes.find((p) => String(p.id) === b.dataset.edit)))
     );
@@ -333,6 +359,7 @@ function mountSettings(target) {
       allow_gift: form.allow_gift.checked,
       allow_reroll: form.allow_reroll.checked,
       tile_enabled: form.tile_enabled.checked,
+      debug_log: form.debug_log.checked,
     };
     for (const key of [
       "title", "subtitle", "daily_free_spins", "spins_per_payment", "max_bonus_spins", "day_offset_hours", "gift_ttl_days",
@@ -528,6 +555,115 @@ function mountSettings(target) {
     } catch (err) {
       alert(err.message);
     }
+  }
+
+  const LEVEL_LABEL = { debug: "debug", info: "info", warn: "warn", error: "error" };
+
+  function shortDetail(detail) {
+    const keys = Object.keys(detail || {});
+    if (!keys.length) return "";
+    const raw = JSON.stringify(detail);
+    return raw.length > 140 ? raw.slice(0, 140) + "…" : raw;
+  }
+
+  async function loadLog() {
+    const box = root.querySelector("[data-log-body]");
+    if (!box) return;
+    const level = root.querySelector("[data-log-level]").value;
+    try {
+      const res = await api(`/logs?limit=100${level ? `&level=${level}` : ""}`);
+      const counts = res.counts || {};
+      root.querySelector("[data-log-counts]").textContent =
+        `ошибок: ${counts.error || 0} · предупреждений: ${counts.warn || 0} · всего записей: ${Object.values(counts).reduce((a, b) => a + b, 0)}`;
+      box.innerHTML = res.rows.length
+        ? `<table class="kwa-table kwa-log"><tr><th>Когда</th><th>Уровень</th><th>Событие</th><th>Пользователь</th><th>Детали</th></tr>${res.rows
+            .map(
+              (r) => `<tr><td>${new Date(r.at).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" })}</td>
+                <td><span class="kwa-lvl ${esc(r.level)}">${esc(LEVEL_LABEL[r.level] || r.level)}</span></td>
+                <td>${esc(r.event)}${r.status ? `<br><span class="kwa-muted">${esc(r.status)} ${esc(r.path || "")}</span>` : ""}</td>
+                <td>${esc(r.user_id ?? "")}</td>
+                <td><code>${esc(shortDetail(r.detail))}</code></td></tr>`
+            )
+            .join("")}</table>`
+        : `<p class="kwa-muted">Записей нет</p>`;
+    } catch (err) {
+      box.innerHTML = `<p class="kwa-muted">Не удалось загрузить журнал: ${esc(err.message)}</p>`;
+    }
+  }
+
+  async function fetchReport() {
+    const mask = root.querySelector("[data-log-mask]").checked ? "1" : "0";
+    const res = await fetch(`${API}/logs/download?mask=${mask}`, { credentials: "same-origin", headers: { Accept: "text/plain" } });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const disposition = res.headers.get("Content-Disposition") || "";
+    const name = (disposition.match(/filename="([^"]+)"/) || [])[1] || "kiro-wheel-log.txt";
+    return { text: await res.text(), name };
+  }
+
+  function showText(report, note) {
+    const area = root.querySelector("[data-log-text]");
+    area.hidden = false;
+    area.value = report;
+    area.focus();
+    area.select();
+    root.querySelector("[data-log-msg]").textContent = note;
+  }
+
+  function bindLog() {
+    const msg = root.querySelector("[data-log-msg]");
+    const level = root.querySelector("[data-log-level]");
+    level.value = cache.logLevel || "";
+    level.addEventListener("change", () => {
+      cache.logLevel = level.value;
+      loadLog();
+    });
+    root.querySelector("[data-log-refresh]").addEventListener("click", loadLog);
+    root.querySelector("[data-log-download]").addEventListener("click", async (e) => {
+      e.target.disabled = true;
+      try {
+        const { text, name } = await fetchReport();
+        const url = URL.createObjectURL(new Blob([text], { type: "text/plain;charset=utf-8" }));
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = name;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 10000);
+        msg.textContent = `Файл ${name} сохранён. Отправьте его разработчику.`;
+      } catch (err) {
+        msg.textContent = `Не удалось скачать: ${err.message}`;
+      }
+      e.target.disabled = false;
+    });
+    root.querySelector("[data-log-copy]").addEventListener("click", async (e) => {
+      e.target.disabled = true;
+      try {
+        const { text } = await fetchReport();
+        try {
+          await navigator.clipboard.writeText(text);
+          msg.textContent = "Журнал скопирован. Вставьте его в сообщение разработчику.";
+        } catch {
+          showText(text, "Скопируйте текст ниже вручную (Ctrl+C) и отправьте разработчику.");
+        }
+      } catch (err) {
+        msg.textContent = `Не удалось получить журнал: ${err.message}`;
+      }
+      e.target.disabled = false;
+    });
+    root.querySelector("[data-log-clear]").addEventListener("click", async (e) => {
+      if (!confirm("Очистить журнал плагина? Это не влияет на призы и вращения игроков.")) return;
+      e.target.disabled = true;
+      try {
+        const res = await api("/logs/clear", "POST", {});
+        msg.textContent = `Удалено записей: ${res.removed}`;
+        await loadLog();
+      } catch (err) {
+        msg.textContent = err.message;
+      }
+      e.target.disabled = false;
+    });
+    loadLog();
   }
 
   async function grantSpins(e) {

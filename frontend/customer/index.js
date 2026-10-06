@@ -16,6 +16,8 @@ const ERRORS = {
   no_spins: "Вращения закончились",
   no_prizes: "Призы ещё не настроены",
   access_denied: "Доступ ограничен",
+  account_banned: "Аккаунт заблокирован. Если это ошибка, напишите в поддержку",
+  profile_not_found: "Профиль не найден. Закройте приложение и откройте его снова",
   unauthorized: "Войдите в аккаунт",
   pending_prize: "Сначала решите, что делать с выигрышем",
   already_resolved: "Этот приз уже обработан",
@@ -736,7 +738,7 @@ function mountWheel(target, props) {
       box.innerHTML = "";
       return;
     }
-    const left = dl.can_claim ? `Сегодня +${dl.today_tickets} 🎟️ — заберите награду` : dl.reason === "claimed_today" ? `Получено. Новая через ${clock(dl.next_at)}` : dl.reason === "subscription_required" ? "Нужна активная подписка" : "";
+    const left = dl.can_claim ? `Сегодня +${dl.today_tickets} 🎟️ — заберите награду` : dl.reason === "claimed_today" ? `Получено. Новая через ${clock(dl.next_at)}` : dl.reason === "subscription_required" ? "Нужна активная подписка" : ERRORS[dl.reason] && dl.reason !== "claimed_today" ? ERRORS[dl.reason] : "";
     box.innerHTML = `<button type="button" class="kw-dentry${dl.can_claim ? " ready" : ""}"><span class="ico">🎁</span>
       <span class="t"><b>Ежедневные награды</b><small data-dsub>${esc(left)} · день ${dl.can_claim ? dl.next_day : dl.streak} из 7</small></span>
       <span class="go">${dl.can_claim ? "Забрать" : "Открыть"}</span></button>`;
@@ -789,7 +791,7 @@ function mountWheel(target, props) {
           <div class="art">${ticketArt(x.tickets)}${x.status === "claimed" ? `<svg class="ok" viewBox="0 0 24 24" fill="none" stroke="#4ade80" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg>` : ""}<span class="n">${x.tickets}</span></div></div>`).join("")}</div>
         <div class="kw-dfoot">${dl.can_claim
           ? `<button type="button" class="kw-dbtn gold" data-claim>Забрать +${dl.today_tickets} 🎟️</button>`
-          : `${dl.reason === "claimed_today" ? `<div class="kw-dtimer">Новая награда через<b data-clock>${clock(dl.next_at)}</b></div>` : `<div class="kw-dtimer">${esc(dl.reason === "subscription_required" ? "Для наград нужна активная подписка" : "Награды сейчас недоступны")}</div>`}<button type="button" class="kw-dbtn" data-close>К колесу</button>`}</div>`;
+          : `${dl.reason === "claimed_today" ? `<div class="kw-dtimer">Новая награда через<b data-clock>${clock(dl.next_at)}</b></div>` : `<div class="kw-dtimer">${esc(dl.reason === "subscription_required" ? "Для наград нужна активная подписка" : ERRORS[dl.reason] || "Награды сейчас недоступны")}</div>`}<button type="button" class="kw-dbtn" data-close>К колесу</button>`}</div>`;
       m.win.querySelector("[data-close]")?.addEventListener("click", close);
       m.win.querySelector("[data-claim]")?.addEventListener("click", (e) => claim(e.currentTarget));
       clearInterval(timer);

@@ -11,6 +11,7 @@ import base64
 import hashlib
 import json
 import logging
+import traceback
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -30,7 +31,7 @@ from bot.plugins.extensions.contracts import (
 )
 from bot.plugins.spec import WEB_SCOPE_WEBAPP, Plugin, PluginContext
 
-from . import daily, logic
+from . import daily, diag, logic
 from .presets import STARTER_PRIZES
 from .logic import (
     WheelError,
@@ -92,16 +93,50 @@ async def _json_body(request: web.Request) -> dict[str, Any]:
     return body
 
 
+def _safe_user(request: web.Request) -> int | None:
+    try:
+        return int(extract_authenticated_user_id(request) or 0) or None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+async def _log(
+    request: web.Request,
+    level: str,
+    event: str,
+    user_id: int | None = None,
+    status: int | None = None,
+    **detail: Any,
+) -> None:
+    """Write one entry to the plugin journal (never raises)."""
+    await diag.record(
+        get_session_factory(request),
+        level,
+        event,
+        user_id=user_id if user_id is not None else _safe_user(request),
+        path=f"{request.method} {request.path}",
+        status=status,
+        detail=detail,
+    )
+
+
 def _guard(handler):
     async def wrapped(request: web.Request) -> web.Response:
         try:
             return await handler(request)
         except WheelError as exc:
+            level = "error" if exc.status >= 500 else "warn" if exc.status in (401, 403) else "info"
+            cause = repr(exc.__cause__)[:300] if exc.__cause__ is not None else None
+            await _log(request, level, "request_failed", status=exc.status, error_code=exc.code, cause=cause)
             return _err(exc.code, exc.status)
         except web.HTTPException:
             raise
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
             logger.exception("kiro-wheel: %s %s failed", request.method, request.path)
+            await _log(
+                request, "error", "internal_error", status=500,
+                error=repr(exc)[:300], trace=traceback.format_exc()[-3000:],
+            )
             return _err("internal_error", 500)
 
     return wrapped
@@ -153,6 +188,9 @@ async def _state_payload(session: Any, user_id: int) -> dict[str, Any]:
     prizes = [public_prize(p) for p in await list_prizes(session, include_disabled=False)]
     state = await spin_state(session, user_id, config)
     pending = await get_pending(session, user_id)
+    daily_state = await daily.get_state(session, user_id, config)
+    if state.get("access"):
+        daily_state = {**daily_state, "can_claim": False, "reason": state["access"]}
     history = (
         await session.execute(
             text(
@@ -193,7 +231,7 @@ async def _state_payload(session: Any, user_id: int) -> dict[str, Any]:
         "enabled": config["enabled"],
         "prizes": prizes if config["enabled"] else [],
         "state": state,
-        "daily": await daily.get_state(session, user_id, config),
+        "daily": daily_state,
         "pending": pending_view(pending, config) if pending else None,
         "gifts": await my_gifts(session, user_id),
         "rules": {
@@ -223,6 +261,14 @@ async def user_state(request: web.Request) -> web.Response:
         payload = await _state_payload(session, user_id)
     for gift_row in payload["gifts"]:
         gift_row["link"] = _gift_link(request, gift_row["code"])
+    state = payload["state"]
+    daily_view = payload["daily"] or {}
+    await _log(
+        request, "debug", "state", user_id, 200,
+        can_spin=state["can_spin"], reason=state["reason"], access=state.get("access"),
+        available=state["available"], pending=bool(payload["pending"]),
+        daily_reason=daily_view.get("reason"), daily_can_claim=daily_view.get("can_claim"),
+    )
     return _ok(payload)
 
 
@@ -238,6 +284,12 @@ async def user_spin(request: web.Request) -> web.Response:
     async with get_session_factory(request)() as session:
         outcome = await spin(session, user_id, str(body.get("request_id") or ""))
         await session.commit()
+    prize = outcome.get("prize") or {}
+    await _log(
+        request, "info", "spin", user_id, 200,
+        spin_id=outcome.get("spin_id"), source=outcome.get("source"), prize_id=prize.get("id"),
+        kind=prize.get("kind"), repeated=bool(outcome.get("repeated")),
+    )
     return _ok({"pending": outcome, "state": await _fresh_state(request, user_id)})
 
 
@@ -259,7 +311,13 @@ async def user_resolve(request: web.Request) -> web.Response:
         else:
             raise WheelError("invalid_action")
         await session.commit()
-    if action == "keep" and outcome["result"].get("manual"):
+    result = outcome.get("result") or {}
+    await _log(
+        request, "info", "resolve", user_id, 200,
+        action=action, spin_id=spin_id, kind=(outcome.get("prize") or {}).get("kind"),
+        applied=result.get("applied"), manual=bool(result.get("manual")),
+    )
+    if action == "keep" and result.get("manual"):
         await _notify_manual(request, user_id, outcome["prize"], spin_id)
     return _ok({**outcome, "state": await _fresh_state(request, user_id)})
 
@@ -270,6 +328,7 @@ async def user_gift_cancel(request: web.Request) -> web.Response:
     async with get_session_factory(request)() as session:
         pending = await logic.cancel_gift(session, user_id, str(body.get("code") or ""))
         await session.commit()
+    await _log(request, "info", "gift_cancel", user_id, 200, code=str(body.get("code") or ""))
     return _ok({"pending": pending})
 
 
@@ -279,6 +338,11 @@ async def user_gift_redeem(request: web.Request) -> web.Response:
     async with get_session_factory(request)() as session:
         outcome = await logic.redeem_gift(session, user_id, str(body.get("code") or ""))
         await session.commit()
+    await _log(
+        request, "info", "gift_redeem", user_id, 200,
+        code=str(body.get("code") or ""), from_user=outcome.get("from_user"),
+        kind=(outcome.get("prize") or {}).get("kind"), applied=outcome["result"].get("applied"),
+    )
     if outcome["result"].get("manual"):
         await _notify_manual(request, user_id, outcome["prize"], "gift")
     await _notify_giver(request, outcome["from_user"], outcome["prize"])
@@ -295,8 +359,9 @@ async def _notify_giver(request: web.Request, giver_id: int, prize: dict[str, An
             await get_bot(request).send_message(
                 int(telegram_id), f"🎁 Ваш друг забрал подарок из Колеса удачи: {prize.get('title')}"
             )
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
         logger.warning("kiro-wheel: giver notification skipped")
+        await _log(request, "warn", "notify_giver_skipped", giver_id, error=repr(exc)[:200])
 
 
 def _spins_word(n: int) -> str:
@@ -349,12 +414,19 @@ async def user_daily_claim(request: web.Request) -> web.Response:
         config = await load_config(session)
         if not config["enabled"]:
             raise WheelError("disabled", 409)
+        access = await logic.account_status(session, user_id)
+        if access:
+            raise WheelError(access, 403)
         try:
             result = await daily.claim(session, user_id, config, add_bonus_spins)
         except daily.DailyError as exc:
             raise WheelError(exc.code, exc.status) from exc
         await session.commit()
     fresh = await _fresh_state(request, user_id)
+    await _log(
+        request, "info", "daily_claim", user_id, 200,
+        day=result.get("day"), granted=result.get("granted"), streak=(result.get("daily") or {}).get("streak"),
+    )
     return _ok({**result, "state": fresh})
 
 
@@ -406,10 +478,12 @@ async def _notify_manual(request: web.Request, user_id: int, prize: dict[str, An
         for admin_id in settings.ADMIN_IDS:
             try:
                 await bot.send_message(int(admin_id), message, parse_mode="HTML")
-            except Exception:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001
                 logger.warning("kiro-wheel: admin notification failed")
-    except Exception:  # noqa: BLE001
+                await _log(request, "warn", "notify_admin_failed", user_id, error=repr(exc)[:200], admin=admin_id)
+    except Exception as exc:  # noqa: BLE001
         logger.warning("kiro-wheel: manual prize notification skipped")
+        await _log(request, "warn", "notify_manual_skipped", user_id, error=repr(exc)[:200])
 
 
 # ---------------------------------------------------------------- admin
@@ -493,9 +567,13 @@ async def admin_save_config(request: web.Request) -> web.Response:
     _admin(request)
     body = await _json_body(request)
     async with get_session_factory(request)() as session:
-        data = clean_config(body, await load_config(session))
+        before = await load_config(session)
+        data = clean_config(body, before)
         await save_config(session, data)
         await session.commit()
+    diag.set_debug(bool(data.get("debug_log")))
+    changed = sorted(key for key in data if data[key] != before.get(key))
+    await _log(request, "info", "admin_config_saved", status=200, changed=changed, debug_log=data.get("debug_log"))
     return _ok({"config": data})
 
 
@@ -512,6 +590,10 @@ async def admin_create_prize(request: web.Request) -> web.Response:
             {**prize, "params": json.dumps(prize["params"], ensure_ascii=False)},
         )
         await session.commit()
+    await _log(
+        request, "info", "admin_prize_created", status=200,
+        prize_id=prize_id, title=prize["title"], kind=prize["kind"],
+    )
     return _ok({"id": prize_id})
 
 
@@ -532,6 +614,10 @@ async def admin_update_prize(request: web.Request) -> web.Response:
         await session.commit()
     if updated.rowcount != 1:
         return _err("prize_not_found", 404)
+    await _log(
+        request, "info", "admin_prize_updated", status=200,
+        prize_id=prize_id, title=prize["title"], kind=prize["kind"],
+    )
     return _ok({"id": prize_id})
 
 
@@ -544,6 +630,7 @@ async def admin_delete_prize(request: web.Request) -> web.Response:
             {"id": prize_id},
         )
         await session.commit()
+    await _log(request, "info", "admin_prize_deleted", status=200, prize_id=prize_id)
     return _ok()
 
 
@@ -613,6 +700,7 @@ async def admin_add_starter_prizes(request: web.Request) -> web.Response:
             position += 1
             added.append(item["title"])
         await session.commit()
+    await _log(request, "info", "admin_starter_added", status=200, added=len(added), skipped=len(skipped))
     return _ok({"added": len(added), "skipped": len(skipped)})
 
 
@@ -644,7 +732,75 @@ async def admin_grant_spins(request: web.Request) -> web.Response:
         )
         await session.commit()
         await _notify_spins(session, get_bot(request), get_settings(request), int(user_id), spins, "admin")
+    await _log(request, "info", "admin_spins_granted", status=200, user_id=int(user_id), spins=spins)
     return _ok({"user_id": user_id, "spins": spins})
+
+
+async def admin_logs(request: web.Request) -> web.Response:
+    _admin(request)
+    level = request.query.get("level") or None
+    try:
+        limit = int(request.query.get("limit") or 100)
+    except ValueError:
+        limit = 100
+    async with get_session_factory(request)() as session:
+        config = await load_config(session)
+        rows = await diag.fetch(session, limit=limit, min_level=level)
+        counts = await diag.counts(session)
+    return _ok(
+        {
+            "debug": bool(config.get("debug_log")),
+            "counts": counts,
+            "max_rows": diag.MAX_ROWS,
+            "rows": [
+                {
+                    "id": r["id"],
+                    "at": r["created_at"].isoformat(),
+                    "level": r["level"],
+                    "event": r["event"],
+                    "user_id": r["user_id"],
+                    "path": r["path"],
+                    "status": r["status"],
+                    "detail": r["detail"],
+                }
+                for r in rows
+            ],
+        }
+    )
+
+
+async def admin_logs_download(request: web.Request) -> web.Response:
+    _admin(request)
+    mask = request.query.get("mask", "1") != "0"
+    try:
+        limit = int(request.query.get("limit") or diag.MAX_ROWS)
+    except ValueError:
+        limit = diag.MAX_ROWS
+    async with get_session_factory(request)() as session:
+        config = await load_config(session)
+        header = await diag.collect_header(session, KiroWheelPlugin.version, config)
+        rows = await diag.fetch(session, limit=limit)
+    report = diag.format_report(header, rows, mask=mask)
+    stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M")
+    await _log(request, "info", "admin_log_exported", status=200, rows=len(rows), masked=mask)
+    return web.Response(
+        text=report,
+        content_type="text/plain",
+        charset="utf-8",
+        headers={
+            "Content-Disposition": f'attachment; filename="kiro-wheel-log-{stamp}.txt"',
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+async def admin_logs_clear(request: web.Request) -> web.Response:
+    _admin(request)
+    async with get_session_factory(request)() as session:
+        removed = await diag.clear(session)
+        await session.commit()
+    await _log(request, "info", "admin_log_cleared", status=200, removed=removed)
+    return _ok({"removed": removed})
 
 
 # ---------------------------------------------------------------- payments -> bonus spins
@@ -674,6 +830,10 @@ async def _on_payment(op: OperationContext, payload: dict[str, Any]) -> dict[str
             cap=int(config["max_bonus_spins"]),
         )
         await session.commit()
+        await diag.record(
+            op.runtime.require_session_factory(), "info", "payment_spins", user_id=user_id,
+            detail={"payment_id": payment_id, "spins": spins, "added": bool(added)},
+        )
         if added:
             await _notify_spins(
                 session, getattr(op.runtime, "bot", None), op.runtime.settings, user_id, spins, "payment"
@@ -688,7 +848,7 @@ async def _view_policy(context: UserContext, view_id: str) -> bool:
 
 class KiroWheelPlugin(Plugin):
     name = PLUGIN_ID
-    version = "1.7.0"
+    version = "1.7.1"
     plugin_api_min_version = 1
     plugin_api_max_version = 1
 
@@ -722,6 +882,9 @@ class KiroWheelPlugin(Plugin):
         router.add_post(f"{ADMIN}/images", _guard(admin_upload_image))
         router.add_post(f"{ADMIN}/presets/starter", _guard(admin_add_starter_prizes))
         router.add_post(f"{ADMIN}/spins", _guard(admin_grant_spins))
+        router.add_get(f"{ADMIN}/logs", _guard(admin_logs))
+        router.add_get(f"{ADMIN}/logs/download", _guard(admin_logs_download))
+        router.add_post(f"{ADMIN}/logs/clear", _guard(admin_logs_clear))
 
     def locales_dir(self) -> Path | None:
         path = Path(__file__).resolve().parents[2] / "locales"

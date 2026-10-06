@@ -56,7 +56,7 @@
   const dailyView = () => {
     const claimed = canClaim ? (mode === "ready" ? 2 : 0) : dailyDone;
     const next = claimed + 1;
-    return { enabled: mode !== "off", can_claim: mode !== "off" && canClaim, reason: canClaim ? null : "claimed_today", streak: claimed, next_day: next > 7 ? 1 : next,
+    return { enabled: mode !== "off", can_claim: mode !== "off" && canClaim && !q.get("access"), reason: q.get("access") || (canClaim ? null : "claimed_today"), streak: claimed, next_day: next > 7 ? 1 : next,
       today_tickets: canClaim ? rewards[next - 1] : 0, broken: mode === "broken", next_at: new Date(Date.now() + (9 * 60 + 12) * 1000).toISOString(),
       days: rewards.map((t, i) => ({ day: i + 1, tickets: t, status: i < claimed ? "claimed" : i === claimed && canClaim ? "current" : "locked" })) };
   };
@@ -66,7 +66,8 @@
     const g = x.createLinearGradient(0, 0, 1080, 360); g.addColorStop(0, "#1e3a8a"); g.addColorStop(1, "#7c3aed"); x.fillStyle = g; x.fillRect(0, 0, 1080, 360);
     x.fillStyle = "#fff"; x.font = "bold 120px system-ui"; x.textAlign = "center"; x.fillText("МОЙ БАННЕР", 540, 215); return c.toDataURL("image/png"); })();
   const theme = { banner: q.get("banner") ? sample : null, banner_fill: q.get("fill") === "1", bg_from: "#ff3b1d", bg_to: "#f7821b", text_color: "#ffffff", btn_bg: "#ffffff", btn_text: "#1b1b1f", win_from: "#ff3b1d", win_to: "#f7821b", win_text: "#ffffff", tile_enabled: false, tile_bg: "#ffffff" };
-  const state = () => ({ daily_left: Math.min(1, available), bonus: Math.max(0, available - 1), available, next_free_at: new Date(Date.now() + 5 * 3600e3).toISOString(), subscribed: true, can_spin: available > 0 && !pending, reason: available > 0 ? null : "no_spins" });
+  const baseState = () => ({ daily_left: Math.min(1, available), bonus: Math.max(0, available - 1), available, next_free_at: new Date(Date.now() + 5 * 3600e3).toISOString(), subscribed: true, can_spin: available > 0 && !pending, reason: available > 0 ? null : "no_spins" });
+  const state = () => { const base = baseState(), a = q.get("access"); return a ? { ...base, available: 0, can_spin: false, reason: a, access: a } : base; };
   const history = [];
   const pv = (p, source) => ({ spin_id: String(++spinN).padStart(32, "0"), prize: p, can_reroll: source !== "reroll", can_gift: p.kind !== "nothing", nothing: p.kind === "nothing", source });
   const rnd = () => prizes[Math.floor(Math.random() * prizes.length)];
@@ -98,10 +99,29 @@
   const adminData = { config: { enabled: true, title: "Колесо удачи", subtitle: "Крутите колесо и забирайте подарки", daily_free_spins: 1, spins_per_payment: 3, max_bonus_spins: 20, day_offset_hours: 3, gift_ttl_days: 7, require_active_subscription: true, notify_admins_on_manual: true, show_feed: true, allow_gift: true, allow_reroll: true, ...theme },
     prizes: prizes.map((p, i) => ({ ...p, description: "", params: p.kind === "discount" ? { percent: 5, valid_days: 30, tile_bg: "#ffffff" } : {}, weight: [10, 30, 40, 20][i], chance: [10, 30, 40, 20][i], stock: null, enabled: true, position: i, won_30d: 1, image_id: null })),
     stats: { day: 4, month: 40, total: 40, players: 7 }, recent: [] };
+  const ago = (m) => new Date(Date.now() - m * 60000).toISOString();
+  const logRows = [
+    { id: 9, at: ago(1), level: "warn", event: "request_failed", user_id: 1873342, path: "POST /api/plugins/kiro-wheel/spin", status: 403, detail: { error_code: "account_banned" } },
+    { id: 8, at: ago(3), level: "info", event: "spin", user_id: 52077, path: "POST /api/plugins/kiro-wheel/spin", status: 200, detail: { spin_id: "9f3c", source: "daily", prize_id: 9, kind: "traffic", repeated: false } },
+    { id: 7, at: ago(3), level: "info", event: "daily_claim", user_id: 52077, path: "POST /api/plugins/kiro-wheel/daily/claim", status: 200, detail: { day: 3, granted: 2, streak: 3 } },
+    { id: 6, at: ago(9), level: "error", event: "internal_error", user_id: 40112, path: "POST /api/plugins/kiro-wheel/resolve", status: 500, detail: { error: "ExtensionError('rewards.days failed')" } },
+    { id: 5, at: ago(14), level: "info", event: "payment_spins", user_id: 40112, detail: { payment_id: 331, spins: 3, added: true } },
+    { id: 4, at: ago(30), level: "info", event: "admin_config_saved", status: 200, path: "PUT /api/admin/kiro-wheel/config", detail: { changed: ["daily_enabled", "debug_log"], debug_log: true } },
+  ];
   const realFetch = window.fetch.bind(window);
-  window.fetch = async (url, opts = {}) => String(url).startsWith("/api/admin/kiro-wheel")
-    ? new Response(JSON.stringify(String(url).endsWith("/images") ? { ok: true, image_id: "abc123", url: "/x" } : { ok: true, ...adminData }), { status: 200, headers: { "Content-Type": "application/json" } })
-    : realFetch(url, opts);
+  window.fetch = async (url, opts = {}) => {
+    const u = String(url);
+    if (!u.startsWith("/api/admin/kiro-wheel")) return realFetch(url, opts);
+    const json = (body) => new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
+    if (u.includes("/logs/download")) return new Response("=== KIRO Wheel journal ===\nplugin: kiro-wheel 1.7.1\n", { status: 200, headers: { "Content-Type": "text/plain", "Content-Disposition": 'attachment; filename="kiro-wheel-log-preview.txt"' } });
+    if (u.includes("/logs/clear")) return json({ ok: true, removed: logRows.length });
+    if (u.includes("/logs")) {
+      const level = new URL(u, location.href).searchParams.get("level");
+      const rank = { debug: 0, info: 1, warn: 2, error: 3 };
+      return json({ ok: true, debug: true, counts: { info: 4, warn: 1, error: 1 }, max_rows: 5000, rows: logRows.filter((r) => !level || rank[r.level] >= rank[level]) });
+    }
+    return json(u.endsWith("/images") ? { ok: true, image_id: "abc123", url: "/x" } : { ok: true, ...adminData });
+  };
   const customer = await import("../frontend/customer/index.js?" + Date.now());
   const admin = await import("../frontend/admin/index.js?" + Date.now());
   let inst = null, mod = null;
