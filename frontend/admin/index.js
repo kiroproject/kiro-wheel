@@ -63,7 +63,8 @@ const STYLE = `
 .kwa input,.kwa select,.kwa textarea{font:inherit;color:var(--text);background-color:var(--panel-2,var(--panel,#1f2430));
   border:1px solid var(--border);border-radius:var(--radius-control,8px);padding:7px 9px;color-scheme:inherit}
 .kwa select option,.kwa select optgroup{background-color:var(--panel-2,var(--panel,#1f2430));color:var(--text)}
-.kwa input[type=checkbox]{accent-color:var(--accent)}
+.kwa input[type=checkbox]{accent-color:var(--accent);box-sizing:border-box;width:18px;height:18px;min-width:18px;min-height:18px;
+  flex:none;margin:0;padding:0}
 .kwa input[type=color]{padding:2px;height:36px;width:64px}
 .kwa textarea{min-height:54px;resize:vertical}
 .kwa-btn{border:1px solid var(--border);background:transparent;color:var(--text);border-radius:8px;padding:7px 12px;cursor:pointer;font:inherit}
