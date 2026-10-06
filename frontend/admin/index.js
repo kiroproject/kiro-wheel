@@ -53,10 +53,11 @@ async function api(path, method = "GET", body) {
 
 const STYLE = `
 .kwa{display:flex;flex-direction:column;gap:14px;color:var(--text);font-size:14px}
+.kwa>[data-body]{display:flex;flex-direction:column;gap:14px}
 .kwa-card{border:1px solid var(--border);border-radius:var(--radius-card,var(--radius,12px));padding:14px;
   background:var(--panel,var(--bg,transparent))}
 .kwa-card h3{margin:0 0 12px;font-size:15px;display:flex;justify-content:space-between;align-items:center;gap:8px}
-.kwa-form{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px 14px}
+.kwa-form{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:14px 16px}
 .kwa label{display:flex;flex-direction:column;gap:4px;color:var(--muted);font-size:12px}
 .kwa label.kwa-check{flex-direction:row;align-items:center;gap:8px;color:var(--text);font-size:14px}
 .kwa input,.kwa select,.kwa textarea{font:inherit;color:var(--text);background-color:var(--panel-2,var(--panel,#1f2430));
@@ -245,13 +246,13 @@ function mountSettings(target) {
         <label class="kwa-check"><input type="checkbox" name="allow_reroll" ${c.allow_reroll ? "checked" : ""}> Можно отказаться и крутить ещё раз (1 раз)</label>
         <label>Подарок действует, дней<input name="gift_ttl_days" type="number" min="1" max="90" value="${esc(c.gift_ttl_days)}"></label>
         <label class="kwa-check"><input type="checkbox" name="debug_log" ${c.debug_log ? "checked" : ""}> Подробный журнал (для диагностики, записывает каждый запрос состояния)</label>
-        <div style="grid-column:1/-1;margin-top:6px;font-weight:600">Ежедневные награды за вход</div>
+        <div style="grid-column:1/-1;margin-top:22px;padding-top:16px;border-top:1px solid var(--border);font-weight:600">Ежедневные награды за вход</div>
         <label class="kwa-check" style="grid-column:1/-1"><input type="checkbox" name="daily_enabled" ${c.daily_enabled ? "checked" : ""}> Включить календарь ежедневных наград (заменяет бесплатное вращение раз в сутки)</label>
         <div style="grid-column:1/-1" class="kwa-muted">Игрок получает билетики (бонусные вращения), если заходит каждый день: серия из 7 дней, пропуск дня сбрасывает её на день 1, после 7-го дня круг начинается заново. Сутки считаются по смещению пояса выше. Вращения за оплату работают как раньше.</div>
         <div style="grid-column:1/-1;display:grid;grid-template-columns:repeat(auto-fit,minmax(90px,1fr));gap:8px">${(c.daily_rewards || [1, 1, 2, 2, 3, 3, 5])
           .map((v, i) => `<label>День ${i + 1}<input name="daily_reward_${i}" type="number" min="0" max="100" value="${esc(v)}"></label>`)
           .join("")}</div>
-        <div style="grid-column:1/-1;margin-top:6px;font-weight:600">Оформление</div>
+        <div style="grid-column:1/-1;margin-top:22px;padding-top:16px;border-top:1px solid var(--border);font-weight:600">Оформление</div>
         <label>Фон колеса: верх<input name="bg_from" type="color" value="${esc(c.bg_from)}"></label>
         <label>Фон колеса: низ<input name="bg_to" type="color" value="${esc(c.bg_to)}"></label>
         <label>Текст на колесе<input name="text_color" type="color" value="${esc(c.text_color)}"></label>
@@ -262,7 +263,7 @@ function mountSettings(target) {
         <label>Окно выигрыша: текст<input name="win_text" type="color" value="${esc(c.win_text)}"></label>
         <label class="kwa-check"><input type="checkbox" name="tile_enabled" ${c.tile_enabled ? "checked" : ""}> Подложка под картинки призов</label>
         <label>Цвет подложки<input name="tile_bg" type="color" value="${esc(c.tile_bg)}"></label>
-        <div style="grid-column:1/-1;margin-top:6px;font-weight:600">Баннер на главной странице</div>
+        <div style="grid-column:1/-1;margin-top:22px;padding-top:16px;border-top:1px solid var(--border);font-weight:600">Баннер на главной странице</div>
         <div class="kwa-banner-box" style="grid-column:1/-1">
           <input type="hidden" name="banner_image_id" value="${esc(c.banner_image_id || "")}">
           <div class="kwa-banner-prev" data-banner-prev style="${c.banner_image_id ? `background-image:url('${BANNER_URL}${esc(c.banner_image_id)}')` : ""}">${c.banner_image_id ? "" : "Стандартный логотип"}</div>
