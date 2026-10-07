@@ -174,11 +174,12 @@ async def main() -> None:
     print("account status")
     account_status = load_function("account_status")
     async with factory() as s:
-        await s.execute(text("insert into users (user_id, is_banned) values (1, false), (2, true)"))
+        await s.execute(text("insert into users (user_id, is_banned) values (1, false), (2, true), (4, NULL)"))
         await s.commit()
         ok(await account_status(s, 1) is None, "a normal account may play")
         ok(await account_status(s, 2) == "account_banned", "a banned account gets its own reason")
         ok(await account_status(s, 3) == "profile_not_found", "a missing profile gets its own reason")
+        ok(await account_status(s, 4) is None, "a NULL is_banned means not banned, not a missing profile")
 
     await engine.dispose()
     server.cleanup()

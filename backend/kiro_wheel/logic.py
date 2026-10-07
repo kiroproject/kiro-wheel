@@ -257,12 +257,11 @@ async def has_active_subscription(session: AsyncSession, user_id: int) -> bool:
 
 async def account_status(session: AsyncSession, user_id: int) -> str | None:
     """None when the account may play, otherwise the reason code shown to the player and logged."""
-    banned = await session.scalar(text("select is_banned from users where user_id = :u"), {"u": user_id})
-    if banned is None:
+    row = (await session.execute(text("select is_banned from users where user_id = :u"), {"u": user_id})).first()
+    if row is None:
         return "profile_not_found"
-    if banned:
-        return "account_banned"
-    return None
+    # is_banned is a nullable column: NULL means "not banned", exactly as in the Minishop core
+    return "account_banned" if row[0] else None
 
 
 async def spin_state(session: AsyncSession, user_id: int, config: dict[str, Any]) -> dict[str, Any]:
