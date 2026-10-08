@@ -1,5 +1,8 @@
 # KIRO Wheel — колесо удачи для Remnawave Minishop
 
+> [!TIP]
+> **Плагин работает в [MARMELAD VPN](https://app.kiroproject.online/?campaign=gh_wheel&utm_source=github&utm_medium=readme&utm_campaign=kiro-wheel).** Посмотрите колесо удачи вживую в Telegram-боте [@marmeladki_app_bot](https://t.me/marmeladki_app_bot?start=gh_wheel).
+
 [![KIRO Wheel](docs/cover.webp)](docs/cover.webp)
 
 **KIRO Wheel** — плагин для [Remnawave Minishop](https://github.com/3252a8/remnawave-minishop), который добавляет в кабинет клиента колесо удачи и календарь ежедневных наград. Клиенты заходят каждый день за билетиками, получают дополнительные вращения за оплату и выигрывают дни подписки, трафик, скидки, деньги на баланс и подарочные коды. Всё настраивается в админке Minishop, без правок кода и без перезапуска бота.
