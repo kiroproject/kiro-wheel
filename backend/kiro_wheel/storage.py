@@ -58,6 +58,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "daily_rewards": [1, 1, 2, 2, 3, 3, 5],
     # diagnostics: also keep per-request debug entries in the plugin journal
     "debug_log": False,
+    # tariffs.json key a trial is converted to by a "days" prize (a prize may override it); "" = Core default tariff
+    "trial_convert_tariff": "start",
 }
 
 COLOR_KEYS = ("bg_from", "bg_to", "text_color", "btn_bg", "btn_text", "win_from", "win_to", "win_text", "tile_bg")
@@ -193,6 +195,33 @@ def _upgrade_0004(connection: Connection) -> None:
         connection.execute(text(statement))
 
 
+def _upgrade_0005(connection: Connection) -> None:
+    """Prize audiences. Existing prizes keep the availability they effectively had before.
+
+    days / traffic: trial + paid subscribers (they needed an active subscription), premium: paid only,
+    everything else: everybody. The audience lives in ``params`` (JSONB), so no column is added.
+    """
+    connection.execute(
+        text(
+            """
+            UPDATE ext_kiro_wheel_prizes
+            SET params = params || jsonb_build_object(
+                'audience',
+                CASE
+                    WHEN kind IN ('days', 'traffic') THEN jsonb_build_object(
+                        'segments', CAST('["trial", "paid"]' AS jsonb), 'tariff_keys', CAST('[]' AS jsonb))
+                    WHEN kind = 'premium' THEN jsonb_build_object(
+                        'segments', CAST('["paid"]' AS jsonb), 'tariff_keys', CAST('[]' AS jsonb))
+                    ELSE jsonb_build_object(
+                        'segments', CAST('["none", "trial", "paid"]' AS jsonb), 'tariff_keys', CAST('[]' AS jsonb))
+                END
+            )
+            WHERE (params -> 'audience') IS NULL
+            """
+        )
+    )
+
+
 MIGRATIONS = [
     Migration(
         id=f"{PLUGIN_ID}.0001_initial",
@@ -213,6 +242,11 @@ MIGRATIONS = [
         id=f"{PLUGIN_ID}.0004_journal",
         description="Wheel of fortune: plugin journal for diagnostics",
         upgrade=_upgrade_0004,
+    ),
+    Migration(
+        id=f"{PLUGIN_ID}.0005_prize_audience",
+        description="Wheel of fortune: prize audiences (no subscription / trial / paid tariffs)",
+        upgrade=_upgrade_0005,
     ),
 ]
 

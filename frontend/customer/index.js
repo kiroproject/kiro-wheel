@@ -29,6 +29,8 @@ const ERRORS = {
   gift_expired: "Срок подарка истёк",
   gift_own: "Нельзя забрать собственный подарок",
   fulfil_failed: "Не удалось выдать приз, попробуйте позже",
+  prize_not_eligible: "Этот приз сейчас недоступен для вашей подписки. Его можно подарить другу или крутить ещё раз",
+  premium_unavailable: "Premium-трафик доступен только на платном тарифе с Premium",
 };
 
 const KIND_ICON = { nothing: "🍀", days: "📅", traffic: "📶", premium: "⚡", balance: "💰", discount: "🏷️", gift_code: "🎁", manual: "🏆" };
@@ -253,6 +255,11 @@ function timeLeft(iso) {
   const h = Math.floor(ms / 3600000);
   const m = Math.floor((ms % 3600000) / 60000);
   return h ? `${h} ч ${m} мин` : `${m} мин`;
+}
+
+// next_free_at is null when the wheel grants no automatic spins (daily_free_spins = 0)
+function noSpinsHint(s) {
+  return s.next_free_at ? `Следующее через ${timeLeft(s.next_free_at)}` : "Нет доступных вращений";
 }
 
 function ago(iso) {
@@ -616,7 +623,7 @@ function mountWheel(target, props) {
     if (s.can_spin) return "Крутить";
     const dl = st.data.daily;
     if (s.reason === "no_spins" && dl && dl.enabled) return dl.can_claim ? "Заберите ежедневную награду" : `Новая награда через ${timeLeft(dl.next_at)}`;
-    if (s.reason === "no_spins") return `Следующее вращение через ${timeLeft(s.next_free_at)}`;
+    if (s.reason === "no_spins") return s.next_free_at ? `Следующее вращение через ${timeLeft(s.next_free_at)}` : "Нет доступных вращений";
     return ERRORS[s.reason] || "Недоступно";
   }
 
@@ -888,6 +895,7 @@ function mountWheel(target, props) {
     m.win.innerHTML = `${prizeTop(p, pending.nothing ? esc(p.title) : `Вы выиграли: ${esc(p.title)}`)}
       <div class="kw-win-body">
         <p>${esc(pending.nothing ? p.description || "В этот раз без приза." : p.label)}</p>
+        ${pending.hint && !pending.nothing ? `<p style="font-size:13px">${esc(pending.hint)}</p>` : ""}
         <button type="button" class="kw-act main" data-a="keep">${pending.nothing ? "Понятно" : "Забрать приз"}</button>
         ${pending.can_gift ? `<button type="button" class="kw-act alt" data-a="gift">🎁 Подарить другу</button>` : ""}
         ${pending.can_reroll ? `<button type="button" class="kw-act alt" data-a="reroll">🔄 ${pending.nothing ? "Крутить ещё раз" : "Отказаться и крутить ещё раз"}</button>
@@ -1104,7 +1112,7 @@ function mountHomeCard(target, props) {
           : s.can_spin
           ? `Доступно вращений: ${s.available}`
           : s.reason === "no_spins"
-            ? `Следующее через ${timeLeft(s.next_free_at)}`
+            ? noSpinsHint(s)
             : ERRORS[s.reason] || "";
       const ready = Boolean(d.pending || s.can_spin || (d.daily && d.daily.can_claim));
       const card = document.createElement("div");
@@ -1194,7 +1202,7 @@ function mountSettingsWheel(target, props) {
           : s.can_spin
           ? `Доступно вращений: ${s.available}`
           : s.reason === "no_spins"
-            ? `Следующее через ${timeLeft(s.next_free_at)}`
+            ? noSpinsHint(s)
             : "Крутите колесо и забирайте подарки";
       root.innerHTML = `<style>${ROW_STYLE}</style>
         <button type="button" class="settings-row settings-row-wheel kw-wheel-row${ready ? " is-ready" : ""}" data-kw-row>

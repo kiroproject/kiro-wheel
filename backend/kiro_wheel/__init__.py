@@ -20,7 +20,13 @@ import aiohttp
 from aiohttp import web
 from sqlalchemy import text
 
-from bot.app.web.context import get_bot, get_bot_username, get_session_factory, get_settings
+from bot.app.web.context import (
+    get_bot,
+    get_bot_username,
+    get_session_factory,
+    get_settings,
+    get_subscription_service,
+)
 from bot.app.web.session import extract_authenticated_user_id
 from bot.plugins.extensions.contracts import (
     DurableSubscription,
@@ -46,6 +52,8 @@ from .logic import (
     public_prize,
     spin,
     spin_state,
+    tariff_catalog,
+    tariffs_of,
 )
 from .storage import COLOR_KEYS, MIGRATIONS, PLUGIN_ID, list_prizes, load_config, save_config
 
@@ -183,9 +191,25 @@ def _theme(config: dict[str, Any]) -> dict[str, Any]:
     return theme
 
 
-async def _state_payload(session: Any, user_id: int) -> dict[str, Any]:
+async def _pending_payload(
+    session: Any, user_id: int, pending: dict[str, Any] | None, config: dict[str, Any], service: Any
+) -> dict[str, Any] | None:
+    if not pending:
+        return None
+    view = pending_view(pending, config)
+    view["hint"] = await logic.decision_hint(session, user_id, view["prize"], config, service)
+    return view
+
+
+async def _state_payload(session: Any, user_id: int, service: Any = None) -> dict[str, Any]:
     config = await load_config(session)
-    prizes = [public_prize(p) for p in await list_prizes(session, include_disabled=False)]
+    # The reel shows only what this player can actually win (prize audiences).
+    seg = await logic.user_segment(session, user_id, tariffs_of(service) if service is not None else None)
+    prizes = [
+        public_prize(p)
+        for p in await list_prizes(session, include_disabled=False)
+        if logic.ineligible_reason(p, seg, config, service) is None
+    ]
     state = await spin_state(session, user_id, config)
     pending = await get_pending(session, user_id)
     daily_state = await daily.get_state(session, user_id, config)
@@ -232,7 +256,7 @@ async def _state_payload(session: Any, user_id: int) -> dict[str, Any]:
         "prizes": prizes if config["enabled"] else [],
         "state": state,
         "daily": daily_state,
-        "pending": pending_view(pending, config) if pending else None,
+        "pending": await _pending_payload(session, user_id, pending, config, service),
         "gifts": await my_gifts(session, user_id),
         "rules": {
             "daily_free_spins": 0 if config["daily_enabled"] else config["daily_free_spins"],
@@ -258,7 +282,7 @@ async def _state_payload(session: Any, user_id: int) -> dict[str, Any]:
 async def user_state(request: web.Request) -> web.Response:
     user_id = _user_id(request)
     async with get_session_factory(request)() as session:
-        payload = await _state_payload(session, user_id)
+        payload = await _state_payload(session, user_id, get_subscription_service(request))
     for gift_row in payload["gifts"]:
         gift_row["link"] = _gift_link(request, gift_row["code"])
     state = payload["state"]
@@ -281,8 +305,12 @@ async def _fresh_state(request: web.Request, user_id: int) -> dict[str, Any]:
 async def user_spin(request: web.Request) -> web.Response:
     user_id = _user_id(request)
     body = await _json_body(request)
+    service = get_subscription_service(request)
     async with get_session_factory(request)() as session:
-        outcome = await spin(session, user_id, str(body.get("request_id") or ""))
+        outcome = await spin(session, user_id, str(body.get("request_id") or ""), service)
+        outcome["hint"] = await logic.decision_hint(
+            session, user_id, outcome["prize"], await load_config(session), service
+        )
         await session.commit()
     prize = outcome.get("prize") or {}
     await _log(
@@ -300,14 +328,19 @@ async def user_resolve(request: web.Request) -> web.Response:
     action = str(body.get("action") or "")
     if not spin_id.isalnum() or len(spin_id) != 32:
         raise WheelError("spin_not_found", 404)
+    service = get_subscription_service(request)
     async with get_session_factory(request)() as session:
         if action == "keep":
-            outcome = await logic.keep(session, user_id, spin_id)
+            outcome = await logic.keep(session, user_id, spin_id, service)
         elif action == "gift":
             outcome = await logic.gift(session, user_id, spin_id)
             outcome["link"] = _gift_link(request, outcome["code"])
         elif action == "reroll":
-            outcome = {"pending": await logic.reroll(session, user_id, spin_id)}
+            new = await logic.reroll(session, user_id, spin_id, service)
+            new["hint"] = await logic.decision_hint(
+                session, user_id, new["prize"], await load_config(session), service
+            )
+            outcome = {"pending": new}
         else:
             raise WheelError("invalid_action")
         await session.commit()
@@ -317,9 +350,23 @@ async def user_resolve(request: web.Request) -> web.Response:
         action=action, spin_id=spin_id, kind=(outcome.get("prize") or {}).get("kind"),
         applied=result.get("applied"), manual=bool(result.get("manual")),
     )
+    if result.get("converted_trial"):
+        await _log_conversion(request, user_id, outcome["prize"], result, spin_id=spin_id)
     if action == "keep" and result.get("manual"):
         await _notify_manual(request, user_id, outcome["prize"], spin_id)
     return _ok({**outcome, "state": await _fresh_state(request, user_id)})
+
+
+async def _log_conversion(
+    request: web.Request, user_id: int, prize: dict[str, Any], result: dict[str, Any], **ref: Any
+) -> None:
+    """Journal mark for a trial replaced by a paid base tariff because of a wheel prize."""
+    await _log(
+        request, "info", "trial_converted", user_id, 200,
+        prize_id=prize.get("id"), title=prize.get("title"), tariff_key=result.get("tariff_key"),
+        days=result.get("days"), ends_at=result.get("ends_at"), subscription_id=result.get("subscription_id"),
+        **ref,
+    )
 
 
 async def user_gift_cancel(request: web.Request) -> web.Response:
@@ -336,13 +383,20 @@ async def user_gift_redeem(request: web.Request) -> web.Response:
     user_id = _user_id(request)
     body = await _json_body(request)
     async with get_session_factory(request)() as session:
-        outcome = await logic.redeem_gift(session, user_id, str(body.get("code") or ""))
+        outcome = await logic.redeem_gift(
+            session, user_id, str(body.get("code") or ""), get_subscription_service(request)
+        )
         await session.commit()
     await _log(
         request, "info", "gift_redeem", user_id, 200,
         code=str(body.get("code") or ""), from_user=outcome.get("from_user"),
         kind=(outcome.get("prize") or {}).get("kind"), applied=outcome["result"].get("applied"),
     )
+    if outcome["result"].get("converted_trial"):
+        await _log_conversion(
+            request, user_id, outcome["prize"], outcome["result"],
+            gift_code=str(body.get("code") or ""), from_user=outcome.get("from_user"),
+        )
     if outcome["result"].get("manual"):
         await _notify_manual(request, user_id, outcome["prize"], "gift")
     await _notify_giver(request, outcome["from_user"], outcome["prize"])
@@ -494,8 +548,16 @@ def _admin(request: web.Request) -> None:
         raise WheelError("forbidden", 403)
 
 
+def _recent_note(raw: Any) -> str | None:
+    result = raw if isinstance(raw, dict) else json.loads(raw or "{}")
+    if not result.get("converted_trial"):
+        return None
+    return "триал заменён тарифом «{}» на {} дн.".format(result.get("tariff_title"), result.get("days"))
+
+
 async def admin_overview(request: web.Request) -> web.Response:
     _admin(request)
+    tariffs = tariff_catalog(tariffs_of(get_settings(request)))
     async with get_session_factory(request)() as session:
         config = await load_config(session)
         prizes = await list_prizes(session, include_disabled=True)
@@ -543,9 +605,11 @@ async def admin_overview(request: web.Request) -> web.Response:
                         else 0
                     ),
                     "won_30d": per_prize.get(p["id"], 0),
+                    "audience": logic.prize_audience(p),
                 }
                 for p in prizes
             ],
+            "tariffs": tariffs,
             "stats": dict(stats) if stats else {},
             "recent": [
                 {
@@ -556,6 +620,7 @@ async def admin_overview(request: web.Request) -> web.Response:
                     "status": STATUS_LABELS.get(row["status"], row["status"]),
                     "prize": (row["prize"] if isinstance(row["prize"], dict) else json.loads(row["prize"])).get("title"),
                     "code": (row["result"] if isinstance(row["result"], dict) else json.loads(row["result"])).get("code"),
+                    "note": _recent_note(row["result"]),
                 }
                 for row in recent
             ],
@@ -568,7 +633,7 @@ async def admin_save_config(request: web.Request) -> web.Response:
     body = await _json_body(request)
     async with get_session_factory(request)() as session:
         before = await load_config(session)
-        data = clean_config(body, before)
+        data = clean_config(body, before, tariffs_of(get_settings(request)))
         await save_config(session, data)
         await session.commit()
     diag.set_debug(bool(data.get("debug_log")))
@@ -579,7 +644,7 @@ async def admin_save_config(request: web.Request) -> web.Response:
 
 async def admin_create_prize(request: web.Request) -> web.Response:
     _admin(request)
-    prize = clean_prize(await _json_body(request))
+    prize = clean_prize(await _json_body(request), tariffs_of(get_settings(request)))
     async with get_session_factory(request)() as session:
         prize_id = await session.scalar(
             text(
@@ -600,7 +665,7 @@ async def admin_create_prize(request: web.Request) -> web.Response:
 async def admin_update_prize(request: web.Request) -> web.Response:
     _admin(request)
     prize_id = int(request.match_info["prize_id"])
-    prize = clean_prize(await _json_body(request))
+    prize = clean_prize(await _json_body(request), tariffs_of(get_settings(request)))
     async with get_session_factory(request)() as session:
         updated = await session.execute(
             text(
@@ -619,6 +684,18 @@ async def admin_update_prize(request: web.Request) -> web.Response:
         prize_id=prize_id, title=prize["title"], kind=prize["kind"],
     )
     return _ok({"id": prize_id})
+
+
+async def admin_tariffs(request: web.Request) -> web.Response:
+    """Tariffs from Core's tariffs.json for the audience / trial-conversion pickers."""
+    _admin(request)
+    config = await _config_for_admin(request)
+    return _ok({"tariffs": tariff_catalog(tariffs_of(get_settings(request))), "trial_convert_tariff": config["trial_convert_tariff"]})
+
+
+async def _config_for_admin(request: web.Request) -> dict[str, Any]:
+    async with get_session_factory(request)() as session:
+        return await load_config(session)
 
 
 async def admin_delete_prize(request: web.Request) -> web.Response:
@@ -848,7 +925,7 @@ async def _view_policy(context: UserContext, view_id: str) -> bool:
 
 class KiroWheelPlugin(Plugin):
     name = PLUGIN_ID
-    version = "1.7.1"
+    version = "1.8.0"
     plugin_api_min_version = 1
     plugin_api_max_version = 1
 
@@ -876,6 +953,7 @@ class KiroWheelPlugin(Plugin):
         router.add_get(USER + "/img/{image_id}", _guard(user_image))
         router.add_get(f"{ADMIN}/overview", _guard(admin_overview))
         router.add_put(f"{ADMIN}/config", _guard(admin_save_config))
+        router.add_get(f"{ADMIN}/tariffs", _guard(admin_tariffs))
         router.add_post(f"{ADMIN}/prizes", _guard(admin_create_prize))
         router.add_put(ADMIN + "/prizes/{prize_id:\\d+}", _guard(admin_update_prize))
         router.add_delete(ADMIN + "/prizes/{prize_id:\\d+}", _guard(admin_delete_prize))

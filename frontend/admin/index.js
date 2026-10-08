@@ -8,7 +8,7 @@ const KINDS = {
   nothing: "Без выигрыша",
   days: "Дни подписки",
   traffic: "Трафик (ГБ)",
-  premium: "Premium-трафик (код)",
+  premium: "Premium-трафик (сразу, только платным с Premium)",
   balance: "Деньги на баланс (₽)",
   discount: "Скидка % (промокод)",
   gift_code: "Подарочный код (дни)",
@@ -29,7 +29,22 @@ const ERRORS = {
   user_not_found: "Пользователь не найден",
   forbidden: "Нет прав администратора",
   csrf_failed: "Сессия устарела, обновите страницу",
+  invalid_audience: "Некорректная аудитория приза",
+  audience_empty: "Выберите хотя бы одну категорию игроков, которым доступен приз",
+  audience_segment_unsupported: "Эта категория не подходит для выбранного типа приза",
+  invalid_audience_tariff: "Один из выбранных тарифов не найден в Minishop",
+  invalid_convert_tariff: "Тариф для замены пробного периода не найден или не годится (нужен помесячный тариф)",
 };
+
+const SEGMENTS = [
+  ["none", "Без подписки"],
+  ["trial", "Пробная подписка (триал)"],
+  ["paid", "Платная подписка"],
+];
+// Which categories a kind can be offered to: nothing to extend without a subscription, premium squad only on paid tariffs.
+const ALLOWED = { days: ["trial", "paid"], traffic: ["trial", "paid"], premium: ["paid"] };
+const allowedFor = (kind) => ALLOWED[kind] || ["none", "trial", "paid"];
+const defaultAudience = (kind) => ({ segments: allowedFor(kind).slice(), tariff_keys: [] });
 
 function csrf() {
   const m = document.cookie.match(/(?:^|;\s*)rw_webapp_csrf=([^;]+)/);
@@ -94,7 +109,50 @@ const STYLE = `
 const ICON = { nothing: "🍀", days: "📅", traffic: "📶", premium: "⚡", balance: "💰", discount: "🏷️", gift_code: "🎁", manual: "🏆" };
 
 // Module-level state survives the host re-creating this view: unsaved form input is restored.
-const cache = { data: null, at: 0, config: null, editor: null };
+const cache = { data: null, at: 0, config: null, editor: null, tariffs: [], convertDefault: "start" };
+
+const periodTariffs = () => (cache.tariffs || []).filter((t) => t.billing_model === "period");
+const tariffLabel = (t) => `${t.title} (${t.key})${t.monthly_gb ? ` · ${t.monthly_gb} ГБ` : ""}${t.premium ? " · Premium" : ""}${t.enabled ? "" : " · выключен"}`;
+
+function convertOptions(selected, emptyLabel) {
+  return `<option value="" ${selected ? "" : "selected"}>${esc(emptyLabel)}</option>` + periodTariffs().map((t) => `<option value="${esc(t.key)}" ${t.key === selected ? "selected" : ""}>${esc(tariffLabel(t))}</option>`).join("");
+}
+
+function audienceText(a) {
+  if (!a) return "";
+  const parts = a.segments.map((sg) => {
+    if (sg !== "paid" || !a.tariff_keys.length) return (SEGMENTS.find((x) => x[0] === sg) || [0, sg])[1];
+    const names = a.tariff_keys.map((k) => (cache.tariffs.find((t) => t.key === k) || { title: k }).title);
+    return `Платная: ${names.join(", ")}`;
+  });
+  return parts.join(" · ");
+}
+
+function audienceFields(kind, audience) {
+  const a = audience || defaultAudience(kind);
+  const allowed = allowedFor(kind);
+  const tariffs = (cache.tariffs || []).filter((t) => kind !== "premium" || t.premium);
+  const boxes = SEGMENTS.map(([key, label]) => {
+    const off = !allowed.includes(key);
+    return `<label class="kwa-check"><input type="checkbox" name="a_${key}" ${a.segments.includes(key) && !off ? "checked" : ""} ${off ? "disabled" : ""}> ${label}</label>`;
+  }).join("");
+  const list = tariffs.length
+    ? `<div data-audience-tariffs style="display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:6px 12px;margin-top:8px">${tariffs
+        .map((t) => `<label class="kwa-check"><input type="checkbox" name="at_${esc(t.key)}" ${a.tariff_keys.includes(t.key) ? "checked" : ""}> ${esc(tariffLabel(t))}</label>`)
+        .join("")}</div>`
+    : `<div class="kwa-muted">Список тарифов Minishop недоступен: приз будет доступен на любом платном тарифе.</div>`;
+  const note =
+    kind === "days" || kind === "traffic"
+      ? "Без подписки этот приз выдать нельзя: продлевать или пополнять нечего."
+      : kind === "premium"
+        ? "Premium-трафик зачисляется сразу и только на платный тариф, в котором есть Premium-сквад."
+        : "";
+  return `<div style="grid-column:1/-1;border:1px solid var(--border);border-radius:10px;padding:10px 12px">
+    <div style="font-weight:600;margin-bottom:6px">Кому доступен приз</div>
+    <div style="display:flex;flex-wrap:wrap;gap:6px 18px">${boxes}</div>
+    <div data-audience-paid style="margin-top:8px"><div class="kwa-muted" style="margin-bottom:2px">Тарифы платной подписки (ничего не отмечено = любой платный тариф)</div>${list}</div>
+    ${note ? `<div class="kwa-muted" style="margin-top:8px">${note}</div>` : ""}</div>`;
+}
 
 function formValues(form) {
   const values = {};
@@ -132,12 +190,18 @@ function paramFields(kind, params = {}) {
 
 function kindFields(kind, params, f, validity) {
   switch (kind) {
-    case "days":
-      return f("days", "Дней подписки", params.days ?? 1, 'type="number" min="1" max="365"');
+    case "days": {
+      const def = periodTariffs().find((t) => t.key === cache.convertDefault);
+      return (
+        f("days", "Дней подписки", params.days ?? 1, 'type="number" min="1" max="365"') +
+        `<label>Тариф вместо пробного периода<select name="p_convert_tariff">${convertOptions(params.convert_tariff || "", `По умолчанию из настроек${def ? `: ${def.title}` : ""}`)}</select>
+          <span class="kwa-muted">Если приз выпал игроку на пробном периоде, триал заменяется этим платным тарифом ровно на указанное число дней с момента получения (остаток триала не прибавляется). Платным игрокам дни просто продлевают их тариф.</span></label>`
+      );
+    }
     case "traffic":
       return f("gb", "ГБ трафика", params.gb ?? 5, 'type="number" min="0.1" step="0.1"');
     case "premium":
-      return f("gb", "ГБ Premium-трафика", params.gb ?? 5, 'type="number" min="0.1" step="0.1"') + validity;
+      return f("gb", "ГБ Premium-трафика", params.gb ?? 5, 'type="number" min="0.1" step="0.1"');
     case "balance":
       return f("rub", "Сумма, ₽", params.rub ?? 50, 'type="number" min="1" step="1"');
     case "discount":
@@ -210,6 +274,8 @@ function mountSettings(target) {
   async function load() {
     try {
       st.data = await api("/overview");
+      cache.tariffs = st.data.tariffs || [];
+      cache.convertDefault = (st.data.config && st.data.config.trial_convert_tariff) || "";
       cache.data = st.data;
       cache.at = Date.now();
       if (!st.disposed) render();
@@ -247,6 +313,9 @@ function mountSettings(target) {
         <label class="kwa-check"><input type="checkbox" name="allow_reroll" ${c.allow_reroll ? "checked" : ""}> Можно отказаться и крутить ещё раз (1 раз)</label>
         <label>Подарок действует, дней<input name="gift_ttl_days" type="number" min="1" max="90" value="${esc(c.gift_ttl_days)}"></label>
         <label class="kwa-check"><input type="checkbox" name="debug_log" ${c.debug_log ? "checked" : ""}> Подробный журнал (для диагностики, записывает каждый запрос состояния)</label>
+        <div style="grid-column:1/-1;margin-top:22px;padding-top:16px;border-top:1px solid var(--border);font-weight:600">Пробный период и призы-дни</div>
+        <label>Тариф по умолчанию вместо пробного периода<select name="trial_convert_tariff">${convertOptions(c.trial_convert_tariff || "", "Тариф по умолчанию в Minishop")}</select></label>
+        <div style="grid-column:1/-1" class="kwa-muted">Если игроку на пробном периоде выпал приз «дни подписки», триал заменяется этим платным тарифом на выигранное число дней (как при ручной смене тарифа в админке: его сквады, лимиты и устройства; пробный период после этого считается использованным). В самом призе можно выбрать другой тариф. Список тарифов берётся из Minishop.${cache.tariffs.length ? "" : " <b>Сейчас список тарифов получить не удалось.</b>"}</div>
         <div style="grid-column:1/-1;margin-top:22px;padding-top:16px;border-top:1px solid var(--border);font-weight:600">Ежедневные награды за вход</div>
         <label class="kwa-check" style="grid-column:1/-1"><input type="checkbox" name="daily_enabled" ${c.daily_enabled ? "checked" : ""}> Включить календарь ежедневных наград (заменяет бесплатное вращение раз в сутки)</label>
         <div style="grid-column:1/-1" class="kwa-muted">Игрок получает билетики (бонусные вращения), если заходит каждый день: серия из 7 дней, пропуск дня сбрасывает её на день 1, после 7-го дня круг начинается заново. Сутки считаются по смещению пояса выше. Вращения за оплату работают как раньше.</div>
@@ -281,19 +350,22 @@ function mountSettings(target) {
       <div class="kwa-card"><h3>Призы <span style="display:inline-flex;gap:8px;flex-wrap:wrap"><button type="button" class="kwa-btn" data-starter title="Добавить готовый набор: 15 призов с картинками. Уже существующие по названию пропускаются.">Стартовый набор (15)</button><button type="button" class="kwa-btn kwa-primary" data-add>+ Добавить приз</button></span></h3>
         <div data-editor></div>
         ${d.prizes.length ? `<div class="kwa-scroll"><table class="kwa-table">
-          <tr><th></th><th>Приз</th><th>Вес</th><th>Шанс</th><th>Остаток</th><th>Выпал за 30д</th><th></th></tr>
+          <tr><th></th><th>Приз</th><th>Кому</th><th>Вес</th><th>Шанс</th><th>Остаток</th><th>Выпал за 30д</th><th></th></tr>
           ${d.prizes
             .map(
               (p) => `<tr class="${p.enabled ? "" : "kwa-off"}"><td>${thumb(p)}</td>
                 <td><b>${esc(p.title)}</b><br><span class="kwa-muted">${esc(p.label)}</span></td>
+                <td class="kwa-muted" style="font-size:12px">${esc(audienceText(p.audience))}${p.kind === "days" && p.params && p.params.convert_tariff ? `<br>триал → ${esc((cache.tariffs.find((t) => t.key === p.params.convert_tariff) || { title: p.params.convert_tariff }).title)}` : ""}</td>
                 <td>${esc(p.weight)}</td><td>${p.enabled ? `${esc(p.chance)}%` : "выкл"}</td>
                 <td>${p.stock == null ? "∞" : esc(p.stock)}</td><td>${esc(p.won_30d)}</td>
                 <td style="white-space:nowrap"><button type="button" class="kwa-btn" data-edit="${p.id}">Изменить</button>
                 <button type="button" class="kwa-btn kwa-danger" data-del="${p.id}">✕</button></td></tr>`
             )
             .join("")}</table></div>` : `<p class="kwa-muted">Призов пока нет. Добавьте несколько и включите колесо.</p>`}
-        <p class="kwa-muted" style="margin:10px 0 0">Шанс = вес приза / сумма весов включённых призов. Призы «дни» и «трафик»
-          выпадают только пользователям с активной подпиской.</p></div>
+        <p class="kwa-muted" style="margin:10px 0 0">Шанс = вес приза / сумма весов включённых призов, считается среди призов,
+          доступных конкретному игроку: у каждого приза задана аудитория (без подписки, пробная, платная и при желании
+          конкретные тарифы). «Дни» и «трафик» нельзя выдать без подписки, Premium-трафик выдаётся только платным
+          тарифам с Premium. Колонка «Кому» показывает текущую аудиторию.</p></div>
 
       <div class="kwa-card"><h3>Выдать бонусные вращения</h3><div class="kwa-form">
         <label>Пользователь (ID, Telegram ID, @username или ms_…)<input data-grant-user></label>
@@ -306,7 +378,7 @@ function mountSettings(target) {
           .map(
             (r) => `<tr><td>${new Date(r.at).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</td>
               <td>${esc(r.user || "")} <span class="kwa-muted">${esc(r.user_id)}</span></td>
-              <td>${esc(r.prize)}${r.code ? `<br><code>${esc(r.code)}</code>` : ""}</td>
+              <td>${esc(r.prize)}${r.code ? `<br><code>${esc(r.code)}</code>` : ""}${r.note ? `<br><span class="kwa-muted">${esc(r.note)}</span>` : ""}</td>
               <td class="kwa-muted">${esc(r.status || "")}<br>${r.source === "daily" ? "ежедневное" : r.source === "reroll" ? "перекрутка" : "бонусное"}</td></tr>`
           )
           .join("")}</table></div>` : `<p class="kwa-muted">Вращений ещё не было</p>`}</div>
@@ -366,6 +438,7 @@ function mountSettings(target) {
     for (const key of [
       "title", "subtitle", "daily_free_spins", "spins_per_payment", "max_bonus_spins", "day_offset_hours", "gift_ttl_days",
       "bg_from", "bg_to", "text_color", "btn_bg", "btn_text", "win_from", "win_to", "win_text", "tile_bg", "banner_image_id",
+      "trial_convert_tariff",
     ])
       body[key] = fd.get(key);
     body.banner_fill = form.banner_fill.checked;
@@ -394,6 +467,7 @@ function mountSettings(target) {
           .map(([k, v]) => `<option value="${k}" ${k === p.kind ? "selected" : ""}>${v}</option>`)
           .join("")}</select></label>
         <div data-params style="display:contents">${paramFields(p.kind, p.params)}</div>
+        <div data-audience style="display:contents">${audienceFields(p.kind, prize ? p.audience : null)}</div>
         <label>Вес (чем больше, тем чаще)<input name="weight" type="number" min="0" value="${esc(p.weight)}"></label>
         <label>Остаток (пусто = без лимита)<input name="stock" type="number" min="0" value="${p.stock == null ? "" : esc(p.stock)}"></label>
         <label>Цвет ярлыка на барабане<input name="color" type="color" value="${esc(p.color || "#7c5cff")}"></label>
@@ -420,6 +494,7 @@ function mountSettings(target) {
       if (draft.fields.kind) {
         form.kind.value = draft.fields.kind;
         box.querySelector("[data-params]").innerHTML = paramFields(form.kind.value, {});
+        box.querySelector("[data-audience]").innerHTML = audienceFields(form.kind.value, null);
       }
       applyValues(form, draft.fields);
       st.editing.image_id = draft.image_id;
@@ -428,12 +503,23 @@ function mountSettings(target) {
         preview.style.backgroundImage = draft.image;
       }
     }
+    const syncAudience = () => {
+      const paid = form.elements.a_paid;
+      const tariffsBox = box.querySelector("[data-audience-paid]");
+      if (paid && tariffsBox) tariffsBox.hidden = !paid.checked;
+    };
     form.addEventListener("input", keepDraft);
-    form.addEventListener("change", keepDraft);
-    form.kind.addEventListener("change", () => {
-      box.querySelector("[data-params]").innerHTML = paramFields(form.kind.value, {});
+    form.addEventListener("change", () => {
+      syncAudience();
       keepDraft();
     });
+    form.kind.addEventListener("change", () => {
+      box.querySelector("[data-params]").innerHTML = paramFields(form.kind.value, {});
+      box.querySelector("[data-audience]").innerHTML = audienceFields(form.kind.value, null);
+      syncAudience();
+      keepDraft();
+    });
+    syncAudience();
     box.querySelector("[data-cancel]").addEventListener("click", () => {
       cache.editor = null;
       box.innerHTML = "";
@@ -471,7 +557,17 @@ function mountSettings(target) {
       for (const [k, v] of fd.entries()) if (k.startsWith("p_")) params[k.slice(2)] = v;
       if (!params.tile_on) delete params.tile_bg;
       delete params.tile_on;
+      if (params.convert_tariff === "") delete params.convert_tariff;
+      const audience = {
+        segments: SEGMENTS.map(([k]) => k).filter((k) => form.elements[`a_${k}`] && form.elements[`a_${k}`].checked && !form.elements[`a_${k}`].disabled),
+        tariff_keys: (cache.tariffs || []).map((t) => t.key).filter((k) => form.elements[`at_${k}`] && form.elements[`at_${k}`].checked),
+      };
+      if (!audience.segments.length) {
+        box.querySelector("[data-status]").textContent = `Ошибка: ${ERRORS.audience_empty}`;
+        return;
+      }
       const payload = {
+        audience,
         title: fd.get("title"),
         kind: fd.get("kind"),
         description: fd.get("description"),
@@ -685,6 +781,7 @@ function mountSettings(target) {
   if (cache.data && Date.now() - cache.at < 120000) {
     // Re-created by the host: show the same data and drafts instantly, without reload flicker.
     st.data = cache.data;
+    cache.tariffs = st.data.tariffs || cache.tariffs;
     render();
   } else {
     load();
